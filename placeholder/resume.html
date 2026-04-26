@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --ink: #1a1a1a;
+        --mid: #a8a7a7;
+        --light: #8a8a8a;
+        --rule: #c8b89a;
+        --accent: #e91d63;
+        --accentfade: #e89b8e;
+        --bg: #faf8f4;
+        --card: #ffffff;
+        --gray: #424242;
+      }
+
+      @page {
+        margin: 0;
+      }
+
+      @media print {
+        * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
+
+      body {
+        background: var(--bg);
+        font-family: "EB Garamond", Georgia, serif;
+        color: var(--ink);
+        min-height: 100vh;
+        padding: 3rem 1.5rem;
+      }
+
+      .page {
+        max-width: 780px;
+        margin: 0 auto;
+        background: var(--card);
+        box-shadow: 0 4px 40px rgba(0, 0, 0, 0.1);
+        padding: 2.5rem 2rem;
+      }
+
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        border-bottom: 3px solid var(--ink);
+        padding-bottom: 1rem;
+        margin-bottom: 1rem;
+      }
+
+      .name {
+        font-family: "Oswald", sans-serif;
+        font-weight: 600;
+        font-size: 2.8rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--ink);
+        line-height: 1;
+      }
+
+      .contact {
+        display: flex;
+        flex-direction: column;
+        color: var(--mid);
+        line-height: 1.2;
+        margin-bottom: 5px;
+      }
+
+      .contact p {
+        font-family: "Roboto Condensed", sans-serif;
+        font-size: 12px;
+      }
+
+      .number {
+        color: var(--accent);
+      }
+
+      .contact a {
+        color: var(--accent);
+        text-decoration: none;
+        font-family: "Roboto Condensed", sans-serif;
+        font-size: 13px;
+      }
+      .contact a:hover {
+        text-decoration: underline;
+      }
+
+      /* ── SECTIONS ── */
+      section {
+        margin-bottom: 1rem;
+      }
+
+      .section-title {
+        font-family: "Oswald", sans-serif;
+        font-weight: 100;
+        font-size: 1rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--gray);
+        border-bottom: 1px solid var(--rule);
+        padding-bottom: 0.35rem;
+        margin-bottom: 0.5rem;
+      }
+
+      .skills-text {
+        font-size: 0.8rem;
+        font-family: "Lexend";
+        line-height: 0.9rem;
+        color: var(--gray);
+      }
+
+      /* ── EXPERIENCE / EDUCATION ── */
+      .entry {
+        margin-bottom: 1rem;
+      }
+      .entry:last-child {
+        margin-bottom: 0;
+      }
+
+      .entry-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 1rem;
+        margin-bottom: 0.25rem;
+      }
+
+      .entry-title {
+        font-family: "Source Code Pro", sans-serif;
+        font-weight: 600;
+        font-size: 1rem;
+        letter-spacing: 0.04em;
+        color: var(--accent);
+      }
+
+
+      .entry-title em {
+        font-family: monospace, sans-serif;
+        font-weight: 100;
+        color: var(--gray);
+        font-size: 0.8rem;
+      }
+
+.entry-title span {
+        font-family: monospace, sans-serif;
+        font-weight: 100;
+        color: var(--gray);
+        font-size: 0.8rem;
+      }
+
+      .entry-date {
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--light);
+        white-space: nowrap;
+        font-family: "Oswald", sans-serif;
+        font-weight: 400;
+      }
+
+      .entry-body {
+        font-size: 0.8rem;
+        line-height: 1rem;
+        color: var(--gray);
+        font-family: "Lexend";
+      }
+
+      .entry-body ul {
+        list-style: none;
+        padding: 0;
+      }
+      .entry-body ul li {
+        padding-left: 0.8rem;
+        position: relative;
+        margin-bottom: 0.3rem;
+        color: var(--gray);
+        font-size: 0.8rem;
+        font-family: "Lexend";
+      }
+      .entry-body ul li::before {
+        content: "-";
+        position: absolute;
+        left: 0;
+        color: var(--rule);
+      }
+
+      /* ── AWARDS ── */
+      .awards-list {
+        font-size: 0.8rem;
+        line-height: 1.8;
+        color: var(--gray);
+        font-family: "Lexend";
+      }
+      .awards-list p {
+        margin-bottom: 0.3rem;
+      }
+
+      /* ── PRINT ── */
+      @media print {
+        body {
+          background: white;
+          padding: 0;
+        }
+        .page {
+          box-shadow: none;
+          padding: 2rem 2.5rem;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .page {
+          padding: 2rem 1.5rem;
+        }
+        header {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        .contact {
+          text-align: left;
+        }
+        .name {
+          font-size: 2rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <!-- HEADER -->
+      <div class="contact">
+        <p>[STREET ADDRESS]</p>
+        <p>[CITY, STATE, ZIP]</p>
+        <p class="number">[PHONE NUMBER]</p>
+        <a href="mailto:your_email@example.com">[EMAIL ADDRESS]</a>
+      </div>
+
+      <header>
+        <div class="name">[YOUR FULL NAME]</div>
+      </header>
+
+      <section>
+        <p class="skills-text">{- SUMMARY -}</p>
+      </section>
+
+      <!-- EXPERIENCE -->
+      <section>
+        <div class="section-title">Experience</div>
+
+        <div class="entry">
+          <div class="entry-header">
+            <div class="entry-title">
+              UNM Mentoring Institute, NM &mdash; <span>Advance Web Developer</span>
+            </div>
+            <div class="entry-date">Dec 2025 - Present</div>
+          </div>
+          <div class="entry-body">
+            <ul>
+              <li>{- UNM1 -}</li>
+              <li>{- UNM2 -}</li>
+              <li>{- UNM3 -}</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="entry">
+          <div class="entry-header">
+            <div class="entry-title">
+              OMNI RTLS, MO &mdash; <span>Software Engineering Intern</span>
+            </div>
+            <div class="entry-date">May 2024 - Dec 2024</div>
+          </div>
+          <div class="entry-body">
+            <ul>
+              <li>{- MO1 -}</li>
+              <li>{- MO2 -}</li>
+              <li>{- MO3 -}</li>
+            </ul>
+          </div>
+        </div>
+
+              </section>
+      <section>
+        <div class="section-title">Project</div>
+<div class="entry">
+          <div class="entry-header">
+            <div class="entry-title">
+              {- PROJ1 -} &mdash; <span>| {- s1 -} | {- s2 -} | {- s3 -} |</span>
+            </div>
+          </div>
+          <div class="entry-body">
+            <p>{- P1_D -}</p>          </div>
+        </div>
+<div class="entry">
+          <div class="entry-header">
+            <div class="entry-title">
+              {- PROJ2 -} &mdash; <span>| {- s4 -} | {- s5 -} | {- s6 -} |</span>
+            </div>
+          </div>
+          <div class="entry-body">
+            <p>{- P2_D  -}</p>          </div>
+        </div>
+
+      </section>
+
+      <!-- EDUCATION -->
+      <section>
+        <div class="section-title">Education</div>
+        <div class="entry">
+          <div class="entry-header">
+            <div class="entry-title">
+              University of New Mexico, NM &mdash; <span>Master: Computer Science</span>
+            </div>
+            <div class="entry-date">Aug 2025 – May 2027</div>
+          </div>
+          <div class="entry-body">
+            <p> {- C1S -} </p>
+          </div>
+        </div>
+        <div class="entry">
+          <div class="entry-header">
+            <div class="entry-title">
+              Missouri State University, MO &mdash; <span>Bachelors: Computer Science</span>
+            </div>
+            <div class="entry-date">Aug 2021 – Dec 2024</div>
+          </div>
+          <div class="entry-body">
+            <p>{- C2S -}</p>
+          </div>
+      </section>
+
+      <section>
+        <div class="section-title">Technolog</div>
+        <div class="awards-list">
+          <p>{- Tec_List -}</p>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

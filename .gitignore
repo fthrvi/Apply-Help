@@ -1,0 +1,6 @@
+jobs.db
+defaults/*
+
+.DS_Store
+32-Adarsha
+*.pdf
