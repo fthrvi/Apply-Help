@@ -31,9 +31,14 @@ func ShowAddJobPopup(app fyne.App, db *sql.DB, onSave func()) {
 	descEntry.SetPlaceHolder("OR paste job description here to skip scraping...")
 	descEntry.SetMinRowsVisible(5)
 
-	// Add Model Selection Dropdown
-	modelSelect := widget.NewSelect([]string{"Gemini", "Claude", "OpenAI"}, nil)
+	modelSelect := widget.NewRadioGroup([]string{"Gemini", "Claude", "OpenAI"}, nil)
+	modelSelect.Horizontal = true
 	modelSelect.SetSelected("Gemini") // Default selection
+
+	companyEntry := widget.NewEntry()
+	companyEntry.SetPlaceHolder("Optional: Company Name")
+	roleEntry := widget.NewEntry()
+	roleEntry.SetPlaceHolder("Optional: Role Name")
 
 	statusLabel := widget.NewLabel("")
 	statusLabel.Wrapping = fyne.TextWrapWord
@@ -101,12 +106,19 @@ func ShowAddJobPopup(app fyne.App, db *sql.DB, onSave func()) {
 				return
 			}
 
-			// Apply defaults if not found
-			company := result.Company
+			// Apply defaults if not found, prioritize manual input
+			company := strings.TrimSpace(companyEntry.Text)
+			if company == "" {
+				company = result.Company
+			}
 			if company == "" || company == "Unknown_Company" {
 				company = "Unknown Company"
 			}
-			role := result.Role
+
+			role := strings.TrimSpace(roleEntry.Text)
+			if role == "" {
+				role = result.Role
+			}
 			if role == "" || role == "Unknown_Role" {
 				role = "Unknown Role"
 			}
@@ -118,7 +130,7 @@ func ShowAddJobPopup(app fyne.App, db *sql.DB, onSave func()) {
 				Company:     company,
 				Role:        role,
 				Link:        rawURL,
-				Status:      "Pending",
+				Status:      "Processed",
 				Description: result.Description,
 				Resume:      result.ResumePath,
 				Coverletter: result.CoverPath,
@@ -140,32 +152,76 @@ func ShowAddJobPopup(app fyne.App, db *sql.DB, onSave func()) {
 		}()
 	}
 
+	addOnlyBtn := widget.NewButton("Add to List Only", func() {
+		rawURL := strings.TrimSpace(linkEntry.Text)
+		manualDesc := strings.TrimSpace(descEntry.Text)
+
+		if rawURL == "" && manualDesc == "" {
+			statusLabel.SetText("Please enter a URL or a Job Description.")
+			return
+		}
+
+		if rawURL != "" && !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+			rawURL = "https://" + rawURL
+		}
+
+		company := strings.TrimSpace(companyEntry.Text)
+		if company == "" {
+			company = "Pending Generation"
+		}
+		role := strings.TrimSpace(roleEntry.Text)
+		if role == "" {
+			role = "Manual Entry"
+		}
+
+		newJob := model.Job{
+			Company:     company,
+			Role:        role,
+			Link:        rawURL,
+			Status:      "Pending",
+			Description: manualDesc,
+		}
+
+		_, dbErr := services.CreateJob(db, newJob)
+		if dbErr != nil {
+			statusLabel.SetText(fmt.Sprintf("DB error: %v", dbErr))
+			return
+		}
+
+		onSave()
+		popupWin.Close()
+	})
+
 	cancelBtn := widget.NewButton("Cancel", func() {
 		popupWin.Close()
 	})
 
 	content := container.NewVBox(
-		widget.NewLabelWithStyle("Paste a link OR a job description to generate your resume & cover letter.", fyne.TextAlignLeading, fyne.TextStyle{}),
-		widget.NewLabel("Job URL (Optional if description provided)"),
-		linkEntry,
-		widget.NewLabel("Job Description (Optional if URL provided)"),
+		widget.NewLabelWithStyle("Paste a job description to generate documents, or provide a link to fetch it automatically.", fyne.TextAlignLeading, fyne.TextStyle{}),
+		widget.NewLabel("Job Description"),
 		descEntry,
+		container.NewGridWithColumns(2,
+			container.NewVBox(widget.NewLabel("Company (Optional)"), companyEntry),
+			container.NewVBox(widget.NewLabel("Role (Optional)"), roleEntry),
+		),
+		widget.NewLabel("Job URL (Optional)"),
+		linkEntry,
 		widget.NewLabel("AI Model"),
 		modelSelect,
-		container.NewHBox(fetchBtn, cancelBtn),
+		container.NewGridWithColumns(3, fetchBtn, addOnlyBtn, cancelBtn),
 		progress,
 		statusLabel,
 	)
 
-	popupWin.SetContent(container.NewPadded(content))
-	popupWin.Resize(fyne.NewSize(550, 480))
+	popupWin.SetContent(container.NewPadded(container.NewVScroll(content)))
+	popupWin.Resize(fyne.NewSize(550, 600))
 	popupWin.CenterOnScreen()
 	popupWin.Show()
 }
 
 func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 	// Left Sidebar
-	categories := []string{"User Profile", "API Keys", "System Prompts", "Output Schemas", "HTML Templates"}
+	categories := []string{"User Profile", "API Keys", "System Prompts", "Output Schemas", "HTML Templates", "Error Logs"}
 	list := widget.NewList(
 		func() int { return len(categories) },
 		func() fyne.CanvasObject { return widget.NewLabel("Template") },
@@ -177,20 +233,37 @@ func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 	rightSide := container.NewStack()
 
 	// 1. API Keys View
-	geminiKey := widget.NewEntry()
-	geminiKey.SetText(services.GetSetting(db, "GEMINI_API_KEY"))
+	geminiKey1 := widget.NewPasswordEntry()
+	geminiKey1.SetText(services.GetSetting(db, "GEMINI_API_KEY"))
+	geminiKey2 := widget.NewPasswordEntry()
+	geminiKey2.SetText(services.GetSetting(db, "GEMINI_API_KEY_2"))
+
+	activeKey := widget.NewRadioGroup([]string{"Key 1", "Key 2"}, nil)
+	activeKey.Horizontal = true
+	if services.GetSetting(db, "ACTIVE_GEMINI_KEY") == "2" {
+		activeKey.SetSelected("Key 2")
+	} else {
+		activeKey.SetSelected("Key 1")
+	}
+
 	geminiURL := widget.NewEntry()
 	geminiURL.SetText(services.GetSetting(db, "GEMINI_URL"))
 	if geminiURL.Text == "" {
 		geminiURL.SetText("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")
 	}
-	claudeKey := widget.NewEntry()
+	claudeKey := widget.NewPasswordEntry()
 	claudeKey.SetText(services.GetSetting(db, "CLAUDE_API_KEY"))
-	openaiKey := widget.NewEntry()
+	openaiKey := widget.NewPasswordEntry()
 	openaiKey.SetText(services.GetSetting(db, "OPENAI_API_KEY"))
 
 	keysSaveBtn := widget.NewButton("Save API Keys", func() {
-		services.SaveSetting(db, "GEMINI_API_KEY", geminiKey.Text)
+		services.SaveSetting(db, "GEMINI_API_KEY", geminiKey1.Text)
+		services.SaveSetting(db, "GEMINI_API_KEY_2", geminiKey2.Text)
+		if activeKey.Selected == "Key 2" {
+			services.SaveSetting(db, "ACTIVE_GEMINI_KEY", "2")
+		} else {
+			services.SaveSetting(db, "ACTIVE_GEMINI_KEY", "1")
+		}
 		services.SaveSetting(db, "GEMINI_URL", geminiURL.Text)
 		services.SaveSetting(db, "CLAUDE_API_KEY", claudeKey.Text)
 		services.SaveSetting(db, "OPENAI_API_KEY", openaiKey.Text)
@@ -199,8 +272,11 @@ func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 
 	keysForm := container.NewVScroll(container.NewPadded(container.NewVBox(
 		widget.NewLabelWithStyle("API Key Configuration", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabel("Gemini API Key"), geminiKey,
+		widget.NewLabel("Gemini API Key 1"), geminiKey1,
+		widget.NewLabel("Gemini API Key 2"), geminiKey2,
+		widget.NewLabel("Active Gemini Key"), activeKey,
 		widget.NewLabel("Gemini Endpoint URL"), geminiURL,
+		widget.NewSeparator(),
 		widget.NewLabel("Claude API Key"), claudeKey,
 		widget.NewLabel("OpenAI/NVIDIA API Key"), openaiKey,
 		container.NewPadded(keysSaveBtn),
@@ -484,6 +560,37 @@ func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 
 	templatesView := container.NewBorder(nil, container.NewPadded(templateSaveBtn), nil, nil, templateTabs)
 
+	// 6. Error Logs View
+	errorLogsContainer := container.NewStack()
+	refreshErrorLogs := func() {
+		logs := services.GetAllErrors(db)
+		vbox := container.NewVBox()
+		vbox.Add(widget.NewLabelWithStyle("Recent System Errors", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
+
+		if len(logs) == 0 {
+			vbox.Add(widget.NewLabel("No errors logged."))
+		}
+
+		for _, l := range logs {
+			timeStr := l.Timestamp.Format("2006-01-02 15:04:05")
+			msg := fmt.Sprintf("[%s] %s", timeStr, l.Message)
+			label := widget.NewLabel(msg)
+			label.Wrapping = fyne.TextWrapWord
+			vbox.Add(label)
+			vbox.Add(widget.NewSeparator())
+		}
+
+		clearBtn := widget.NewButtonWithIcon("Clear All Logs", theme.DeleteIcon(), func() {
+			services.ClearErrors(db)
+			errorLogsContainer.Objects = []fyne.CanvasObject{container.NewCenter(widget.NewLabel("Logs Cleared"))}
+			errorLogsContainer.Refresh()
+		})
+		clearBtn.Importance = widget.DangerImportance
+		
+		errorLogsContainer.Objects = []fyne.CanvasObject{container.NewBorder(nil, container.NewPadded(clearBtn), nil, nil, container.NewVScroll(container.NewPadded(vbox)))}
+		errorLogsContainer.Refresh()
+	}
+
 	list.OnSelected = func(id widget.ListItemID) {
 		rightSide.Objects = nil
 		if id == 0 {
@@ -496,6 +603,9 @@ func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 			rightSide.Add(schemasView)
 		} else if id == 4 {
 			rightSide.Add(templatesView)
+		} else if id == 5 {
+			refreshErrorLogs()
+			rightSide.Add(errorLogsContainer)
 		}
 		rightSide.Refresh()
 	}
@@ -541,7 +651,7 @@ func renderPDFToCanvas(pdfPath string) fyne.CanvasObject {
 
 		outDir := "/tmp"
 		fmt.Printf("🔨 Preview: Running qlmanage for %s\n", pdfPath)
-		cmd := exec.Command("qlmanage", "-t", "-s", "1080", "-o", outDir, pdfPath)
+		cmd := exec.Command("qlmanage", "-t", "-s", "2048", "-o", outDir, pdfPath)
 		err = cmd.Run()
 		if err != nil {
 			fmt.Printf("❌ Preview: qlmanage failed: %v\n", err)
@@ -691,8 +801,8 @@ func BuildEditJobView(db *sql.DB, job model.Job, onSave func(), onCancel func())
 	})
 	submitBtn.Importance = widget.HighImportance
 
-	// Add Model Selection Dropdown for Regeneration
-	modelSelect := widget.NewSelect([]string{"Gemini", "Claude", "OpenAI"}, nil)
+	modelSelect := widget.NewRadioGroup([]string{"Gemini", "Claude", "OpenAI"}, nil)
+	modelSelect.Horizontal = true
 	modelSelect.SetSelected("Gemini")
 
 	regenStatus := widget.NewLabel("")
@@ -701,48 +811,70 @@ func BuildEditJobView(db *sql.DB, job model.Job, onSave func(), onCancel func())
 	regenProgress.Hide()
 
 	var regenBtn *widget.Button
-	regenBtn = widget.NewButtonWithIcon("Regenerate Docs", theme.MediaReplayIcon(), func() {
+	regenBtn = widget.NewButtonWithIcon("Generate/Regenerate Docs", theme.MediaReplayIcon(), func() {
+		rawURL := link.Text
 		desc := description.Text
-		if desc == "" {
-			regenStatus.SetText("⚠ Description is empty — cannot regenerate.")
-			return
-		}
-		comp := company.Text
-		if comp == "" {
-			comp = "Unknown Company"
-		}
-		rl := role.Text
-		if rl == "" {
-			rl = "Unknown Role"
-		}
-
-		selectedModel := modelSelect.Selected // Capture chosen model
+		selectedModel := modelSelect.Selected
 
 		regenBtn.Disable()
 		regenProgress.Show()
-		regenStatus.SetText(fmt.Sprintf("Regenerating docs using %s…", selectedModel))
 
 		go func() {
-			// Passed selectedModel to the service
-			result, err := services.RunRegenerate(comp, rl, desc, selectedModel, func(msg string) {
+			defer func() {
 				fyne.Do(func() {
-					regenStatus.SetText(strings.TrimSpace(msg))
+					regenProgress.Hide()
+					regenBtn.Enable()
 				})
-			})
+			}()
+
+			var result *services.AutoApplyResult
+			var err error
+
+			if job.Status == "Pending" {
+				// Full flow: Fetch + Extract + Generate
+				fyne.Do(func() { regenStatus.SetText(fmt.Sprintf("Processing full workflow using %s…", selectedModel)) })
+				result, err = services.RunAutoApply(rawURL, desc, selectedModel, func(msg string) {
+					fyne.Do(func() { regenStatus.SetText(strings.TrimSpace(msg)) })
+				})
+			} else {
+				// Just regenerate from existing description
+				comp := company.Text
+				if comp == "" {
+					comp = "Unknown Company"
+				}
+				rl := role.Text
+				if rl == "" {
+					rl = "Unknown Role"
+				}
+				fyne.Do(func() { regenStatus.SetText(fmt.Sprintf("Regenerating docs using %s…", selectedModel)) })
+				result, err = services.RunRegenerate(comp, rl, desc, selectedModel, func(msg string) {
+					fyne.Do(func() { regenStatus.SetText(strings.TrimSpace(msg)) })
+				})
+			}
+
+			if err != nil {
+				fyne.Do(func() { regenStatus.SetText(fmt.Sprintf("Error: %v", err)) })
+				return
+			}
+			if !result.Success {
+				fyne.Do(func() { regenStatus.SetText(fmt.Sprintf("Failed: %s", result.Error)) })
+				return
+			}
+
 			fyne.Do(func() {
-				regenProgress.Hide()
-				regenBtn.Enable()
-				if err != nil {
-					regenStatus.SetText(fmt.Sprintf("Error: %v", err))
-					return
-				}
-				if !result.Success {
-					regenStatus.SetText(fmt.Sprintf("Failed: %s", result.Error))
-					return
-				}
-				// Update form fields and save to DB
+				// Update form fields
+				company.SetText(result.Company)
+				role.SetText(result.Role)
+				description.SetText(result.Description)
+				status.SetText("Processed")
 				resume.SetText(result.ResumePath)
 				coverLetter.SetText(result.CoverPath)
+
+				// Update internal job object
+				job.Company = result.Company
+				job.Role = result.Role
+				job.Description = result.Description
+				job.Status = "Processed"
 				job.Resume = result.ResumePath
 				job.Coverletter = result.CoverPath
 
@@ -759,7 +891,7 @@ func BuildEditJobView(db *sql.DB, job model.Job, onSave func(), onCancel func())
 				}
 
 				_ = services.UpdateJob(db, job)
-				regenStatus.SetText(fmt.Sprintf("✓ Documents regenerated using %s!", selectedModel))
+				regenStatus.SetText(fmt.Sprintf("✓ Successfully processed using %s!", selectedModel))
 			})
 		}()
 	})
@@ -777,7 +909,7 @@ func BuildEditJobView(db *sql.DB, job model.Job, onSave func(), onCancel func())
 		onCancel()
 	})
 
-	actionButtons := container.NewHBox(submitBtn, deleteBtn)
+	actionButtons := container.NewGridWithColumns(2, submitBtn, deleteBtn)
 
 	companyRoleBox := container.NewGridWithColumns(2,
 		container.NewVBox(widget.NewLabel("Company"), company),
@@ -804,12 +936,11 @@ func BuildEditJobView(db *sql.DB, job model.Job, onSave func(), onCancel func())
 			regenProgress,
 			regenStatus,
 		)),
-		container.NewPadded(actionButtons),
 	)
 
 	header := container.NewBorder(nil, nil, backBtn, nil, widget.NewLabelWithStyle("Edit Job Entry", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}))
 
-	formContent := container.NewBorder(header, nil, nil, nil, container.NewVScroll(container.NewPadded(form)))
+	formContent := container.NewBorder(header, container.NewPadded(actionButtons), nil, nil, container.NewVScroll(container.NewPadded(form)))
 
 	resumeTab := container.NewTabItem("Resume", renderPDFToCanvas(job.Resume))
 	coverTab := container.NewTabItem("Cover Letter", renderPDFToCanvas(job.Coverletter))
@@ -846,16 +977,20 @@ func BuildEditJobView(db *sql.DB, job model.Job, onSave func(), onCancel func())
 }
 
 func tableResizer(t *widget.Table, container fyne.CanvasObject) {
-	width := container.Size().Width
-	if width < 800 {
-		width = 800
+	width := container.Size().Width - 32 // Accounting for the small side padding
+	if width < 100 {
+		return
 	}
-	t.SetColumnWidth(0, 50)
-	t.SetColumnWidth(1, width*0.15)
-	t.SetColumnWidth(2, width*0.15)
-	t.SetColumnWidth(3, width*0.4)
-	t.SetColumnWidth(4, width*0.1)
-	t.SetColumnWidth(5, 80)
+
+	// Perfectly equal columns across 100% of the width
+	colWidth := width / 6
+
+	t.SetColumnWidth(0, colWidth)
+	t.SetColumnWidth(1, colWidth)
+	t.SetColumnWidth(2, colWidth)
+	t.SetColumnWidth(3, colWidth)
+	t.SetColumnWidth(4, colWidth)
+	t.SetColumnWidth(5, colWidth)
 }
 
 func CreateMainWindow(app fyne.App, db *sql.DB) fyne.Window {
@@ -929,8 +1064,13 @@ func CreateMainWindow(app fyne.App, db *sql.DB) fyne.Window {
 	win.Resize(fyne.NewSize(1200, 800))
 
 	go func() {
-		time.Sleep(100 * time.Millisecond)
-		tableResizer(jobTable.Table, win.Content())
+		// Run a few times to ensure we catch the final window size after animations/maximize
+		for i := 0; i < 10; i++ {
+			time.Sleep(time.Duration(i*50) * time.Millisecond)
+			fyne.Do(func() {
+				tableResizer(jobTable.Table, win.Content())
+			})
+		}
 	}()
 
 	return win

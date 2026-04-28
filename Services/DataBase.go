@@ -12,6 +12,12 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+type ErrorLog struct {
+	Id        int
+	Message   string
+	Timestamp time.Time
+}
+
 var GlobalDB *sql.DB
 
 func InitDb() *sql.DB {
@@ -105,6 +111,15 @@ func createTable(db *sql.DB) {
 	// Migrations: Add new columns to existing Job table if missing
 	_, _ = db.Exec("ALTER TABLE Job ADD COLUMN resume_data TEXT;")
 	_, _ = db.Exec("ALTER TABLE Job ADD COLUMN cover_data TEXT;")
+
+	// ErrorLogs table
+	queryLogs := `
+    CREATE TABLE IF NOT EXISTS ErrorLogs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message TEXT,
+        timestamp DATETIME
+    );`
+	_, _ = db.Exec(queryLogs)
 }
 
 func CreateJob(db *sql.DB, j model.Job) (int64, error) {
@@ -212,4 +227,40 @@ func SaveUserInfo(db *sql.DB, ui *model.UserInfo) error {
 		return err
 	}
 	return SaveSetting(db, "USER_INFO", string(data))
+}
+
+func LogError(db *sql.DB, message string) {
+	if db == nil {
+		db = GlobalDB
+	}
+	if db == nil {
+		return
+	}
+	_, _ = db.Exec("INSERT INTO ErrorLogs (message, timestamp) VALUES (?, ?)", message, time.Now())
+}
+
+func GetAllErrors(db *sql.DB) []ErrorLog {
+	if db == nil {
+		db = GlobalDB
+	}
+	rows, err := db.Query("SELECT id, message, timestamp FROM ErrorLogs ORDER BY id DESC LIMIT 100")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var logs []ErrorLog
+	for rows.Next() {
+		var l ErrorLog
+		_ = rows.Scan(&l.Id, &l.Message, &l.Timestamp)
+		logs = append(logs, l)
+	}
+	return logs
+}
+
+func ClearErrors(db *sql.DB) {
+	if db == nil {
+		db = GlobalDB
+	}
+	_, _ = db.Exec("DELETE FROM ErrorLogs")
 }

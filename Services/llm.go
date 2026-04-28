@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -62,7 +63,9 @@ func PromptAI(prompt string, modelChoice string) (string, error) {
 		bytes, _ := json.Marshal(res.Data)
 		return string(bytes), nil
 	default:
-		return "", fmt.Errorf("unsupported model choice: %s", modelChoice)
+		err := fmt.Errorf("unsupported model choice: %s", modelChoice)
+		LogError(GlobalDB, err.Error())
+		return "", err
 	}
 }
 
@@ -88,7 +91,10 @@ func getOpenAIClient() *openai.Client {
 
 	if openAIKey != "" {
 		config := openai.DefaultConfig(openAIKey)
-		config.BaseURL = "https://integrate.api.nvidia.com/v1"
+		// If it's an NVIDIA key, use their endpoint. Otherwise, default to OpenAI.
+		if strings.HasPrefix(openAIKey, "nvapi-") {
+			config.BaseURL = "https://integrate.api.nvidia.com/v1"
+		}
 		openAIClient = openai.NewClientWithConfig(config)
 	}
 	return openAIClient
@@ -97,7 +103,13 @@ func getOpenAIClient() *openai.Client {
 func CallLLM(prompt, system, model string, maxTokens int) LLMResult {
 	client := getOpenAIClient()
 	if client == nil {
-		return LLMResult{Success: false, Error: fmt.Errorf("OpenAI client not initialized")}
+		return LLMResult{Success: false, Error: fmt.Errorf("OpenAI/NVIDIA API Key not found in settings")}
+	}
+
+	// Adjust model if we are using real OpenAI
+	apiKey := GetSetting(GlobalDB, "OPENAI_API_KEY")
+	if strings.HasPrefix(apiKey, "sk-") && strings.Contains(model, "gemma") {
+		model = "gpt-4o" // Use a standard OpenAI model if the key is sk-
 	}
 
 	ctx := context.Background()
@@ -107,11 +119,15 @@ func CallLLM(prompt, system, model string, maxTokens int) LLMResult {
 			{Role: openai.ChatMessageRoleSystem, Content: system},
 			{Role: openai.ChatMessageRoleUser, Content: prompt},
 		},
-		Temperature: 0.7,
+		Temperature: 1.7,
 		MaxTokens:   maxTokens,
-		ResponseFormat: &openai.ChatCompletionResponseFormat{
+	}
+
+	// Only request JSON format if the model is an OpenAI one (Gemma via NVIDIA can be finicky with this flag)
+	if strings.HasPrefix(model, "gpt-") {
+		req.ResponseFormat = &openai.ChatCompletionResponseFormat{
 			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
-		},
+		}
 	}
 
 	resp, err := client.CreateChatCompletion(ctx, req)
@@ -121,9 +137,20 @@ func CallLLM(prompt, system, model string, maxTokens int) LLMResult {
 
 	raw := strings.TrimSpace(resp.Choices[0].Message.Content)
 
+	// Clean up markdown code blocks if present
+	if strings.Contains(raw, "```") {
+		// Find the first '{' and last '}' to extract the JSON object
+		reSimple := regexp.MustCompile(`(?s)\{.*\}`)
+		if match := reSimple.FindString(raw); match != "" {
+			raw = match
+		}
+	}
+
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-		return LLMResult{Success: false, Error: fmt.Errorf("invalid JSON: %w\nRaw: %s", err, raw)}
+		errStr := fmt.Errorf("invalid JSON: %w\nRaw: %s", err, raw)
+		LogError(GlobalDB, errStr.Error())
+		return LLMResult{Success: false, Error: errStr}
 	}
 
 	return LLMResult{Success: true, Data: parsed}
@@ -158,7 +185,14 @@ type GeminiService struct {
 }
 
 func NewGeminiService() *GeminiService {
-	apiKey := GetSetting(GlobalDB, "GEMINI_API_KEY")
+	activeIdx := GetSetting(GlobalDB, "ACTIVE_GEMINI_KEY")
+	keyName := "GEMINI_API_KEY"
+	if activeIdx == "2" {
+		keyName = "GEMINI_API_KEY_2"
+	}
+
+	apiKey := GetSetting(GlobalDB, "ACTIVE_GEMINI_KEY") // Wait, I should use keyName here
+	apiKey = GetSetting(GlobalDB, keyName)
 	if apiKey == "" {
 		apiKey = os.Getenv("API_KEY")
 	}
@@ -305,4 +339,3 @@ func (s *AnthropicService) Chat(prompt string) (string, error) {
 
 	return anthropicResp.Content[0].Text, nil
 }
-

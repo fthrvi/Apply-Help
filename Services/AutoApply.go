@@ -31,24 +31,30 @@ type AutoApplyResult struct {
 // ═════════════════════════════════════════════════════════════════════════════
 
 func getAutoApplyDir() string {
-	candidates := []string{
-		"../AutoApply",
-		"../../AutoApply",
-		filepath.Join(os.Getenv("HOME"), "Desktop", "code", "Apply", "AutoApply"),
-	}
-	for _, c := range candidates {
-		abs, _ := filepath.Abs(c)
-		if info, err := os.Stat(abs); err == nil && info.IsDir() {
-			return abs
-		}
-	}
-	return "."
+	// Priority 1: Current directory (AutoApplyUI)
+	abs, _ := filepath.Abs(".")
+	return abs
 }
 
 func sanitizeFilename(name string) string {
 	reg, _ := regexp.Compile(`[^a-zA-Z0-9\-_\. ]+`)
 	safe := reg.ReplaceAllString(name, "_")
 	return strings.TrimSpace(safe)
+}
+
+func saveToDownloads(sourcePath string, company string, filename string) {
+	downloadsDir := filepath.Join(os.Getenv("HOME"), "Downloads")
+	// Organise by Company in Downloads folder
+	targetDir := filepath.Join(downloadsDir, "AutoApply", sanitizeFilename(company))
+	os.MkdirAll(targetDir, 0755)
+
+	targetPath := filepath.Join(targetDir, filename)
+
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return
+	}
+	os.WriteFile(targetPath, data, 0644)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -144,6 +150,7 @@ func RunAutoApply(jobURL string, manualDesc string, modelChoice string, logFn fu
 		if logFn != nil { logFn("🔍 STEP 1: Fetching job page (via HTTP)...\n") }
 		html, err := FetchHTML(jobURL)
 		if err != nil {
+			LogError(GlobalDB, fmt.Sprintf("Fetch failed: %v", err))
 			return nil, fmt.Errorf("fetch failed: %v", err)
 		}
 		text = StripHTML(html)
@@ -159,6 +166,7 @@ func RunAutoApply(jobURL string, manualDesc string, modelChoice string, logFn fu
 	prompt := fmt.Sprintf(extractPrompt, text)
 	res, err := PromptAI(prompt, modelChoice)
 	if err != nil {
+		LogError(GlobalDB, fmt.Sprintf("Extraction failed: %v", err))
 		return nil, fmt.Errorf("extraction failed: %v", err)
 	}
 	
@@ -220,6 +228,7 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 
 	res, err := PromptAI(prompt, modelChoice)
 	if err != nil {
+		LogError(GlobalDB, fmt.Sprintf("Combined generation failed: %v", err))
 		return nil, fmt.Errorf("generation failed: %v", err)
 	}
 
@@ -236,7 +245,9 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 	coverJSON := combinedJSON["COVER"]
 
 	if resumeJSON == nil || coverJSON == nil {
-		return nil, fmt.Errorf("failed to extract RESUME or COVER from combined response")
+		err := fmt.Errorf("failed to extract RESUME or COVER from combined response")
+		LogError(GlobalDB, err.Error())
+		return nil, err
 	}
 
 	// Add date
@@ -278,6 +289,10 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 	if logFn != nil { logFn("  📄 Converting to PDF (cupsfilter)...\n") }
 	HtmlToPdf(resumeHTML, resumePDF)
 	HtmlToPdf(coverHTML, coverPDF)
+
+	// Also save to Downloads
+	saveToDownloads(resumePDF, company, "resume.pdf")
+	saveToDownloads(coverPDF, company, "cover.pdf")
 
 	if logFn != nil { logFn("✅ DONE! Files saved in Company/" + safeCompany + "\n") }
 
@@ -333,6 +348,10 @@ func RegenerateFromData(company, role, resumeDataJSON, coverDataJSON string, log
 
 	HtmlToPdf(resumeHTML, resumePDF)
 	HtmlToPdf(coverHTML, coverPDF)
+
+	// Also save to Downloads
+	saveToDownloads(resumePDF, company, "resume.pdf")
+	saveToDownloads(coverPDF, company, "cover.pdf")
 
 	return &AutoApplyResult{
 		Success:    true,
