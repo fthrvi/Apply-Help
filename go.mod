@@ -4,6 +4,7 @@ go 1.25.7
 
 require (
 	fyne.io/fyne/v2 v2.7.3
+	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/joho/godotenv v1.5.1
 	github.com/sashabaranov/go-openai v1.41.2
 	modernc.org/sqlite v1.50.0
@@ -12,6 +13,7 @@ require (
 require (
 	fyne.io/systray v1.12.0 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
+	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
@@ -43,9 +45,9 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect
 	golang.org/x/image v0.24.0 // indirect
-	golang.org/x/net v0.35.0 // indirect
+	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

@@ -4,6 +4,7 @@ import (
 	"32-Adarsha/services"
 	"32-Adarsha/theme"
 	"32-Adarsha/ui"
+	pull "32-Adarsha/Joppull"
 
 	"fyne.io/fyne/v2/app"
 )
@@ -18,6 +19,11 @@ func main() {
 	// 2. Initialize Database
 	db := services.InitDb()
 	defer db.Close()
+
+	// 2.5 Pull latest jobs in the background or foreground
+	// Let's do it in a goroutine so the UI can launch quickly, 
+	// but it'll pull and insert as needed
+	go pull.PullLatestJobs(db)
 
 	// 3. Launch UI
 	myWindow := ui.CreateMainWindow(myApp, db)

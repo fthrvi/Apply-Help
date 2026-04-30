@@ -17,6 +17,8 @@ type Job struct {
 	Question    string
 	ResumeData  string // JSON string
 	CoverData   string // JSON string
+	Source      string
+	HasDocument int
 }
 
 func (j Job) ToStringSlice() []string {

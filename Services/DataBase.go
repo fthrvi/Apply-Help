@@ -89,7 +89,9 @@ func createTable(db *sql.DB) {
         coverLetter TEXT,
         question TEXT,
         resume_data TEXT,
-        cover_data TEXT
+        cover_data TEXT,
+        source TEXT,
+        has_document INTEGER DEFAULT 0
     );`
 
 	_, err := db.Exec(query)
@@ -111,6 +113,11 @@ func createTable(db *sql.DB) {
 	// Migrations: Add new columns to existing Job table if missing
 	_, _ = db.Exec("ALTER TABLE Job ADD COLUMN resume_data TEXT;")
 	_, _ = db.Exec("ALTER TABLE Job ADD COLUMN cover_data TEXT;")
+	_, _ = db.Exec("ALTER TABLE Job ADD COLUMN source TEXT;")
+	_, _ = db.Exec("ALTER TABLE Job ADD COLUMN has_document INTEGER DEFAULT 0;")
+
+	// Backfill has_document for existing jobs
+	_, _ = db.Exec("UPDATE Job SET has_document = 1 WHERE coalesce(resume, '') != '' AND coalesce(coverLetter, '') != '';")
 
 	// ErrorLogs table
 	queryLogs := `
@@ -123,10 +130,15 @@ func createTable(db *sql.DB) {
 }
 
 func CreateJob(db *sql.DB, j model.Job) (int64, error) {
-	query := `INSERT INTO Job (company, role, link, status, created_at, description, resume, coverLetter, question, resume_data, cover_data) 
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	hasDoc := 0
+	if j.Resume != "" && j.Coverletter != "" {
+		hasDoc = 1
+	}
 
-	result, err := db.Exec(query, j.Company, j.Role, j.Link, j.Status, time.Now(), j.Description, j.Resume, j.Coverletter, j.Question, j.ResumeData, j.CoverData)
+	query := `INSERT INTO Job (company, role, link, status, created_at, description, resume, coverLetter, question, resume_data, cover_data, source, has_document) 
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	result, err := db.Exec(query, j.Company, j.Role, j.Link, j.Status, time.Now(), j.Description, j.Resume, j.Coverletter, j.Question, j.ResumeData, j.CoverData, j.Source, hasDoc)
 	if err != nil {
 		return 0, err
 	}
@@ -134,10 +146,15 @@ func CreateJob(db *sql.DB, j model.Job) (int64, error) {
 }
 
 func UpdateJob(db *sql.DB, j model.Job) error {
-	query := `UPDATE Job SET company=?, role=?, link=?, status=?, description=?, resume=?, coverLetter=?, question=?, resume_data=?, cover_data=? 
+	hasDoc := 0
+	if j.Resume != "" && j.Coverletter != "" {
+		hasDoc = 1
+	}
+
+	query := `UPDATE Job SET company=?, role=?, link=?, status=?, description=?, resume=?, coverLetter=?, question=?, resume_data=?, cover_data=?, source=?, has_document=? 
 	          WHERE id=?`
 
-	_, err := db.Exec(query, j.Company, j.Role, j.Link, j.Status, j.Description, j.Resume, j.Coverletter, j.Question, j.ResumeData, j.CoverData, j.Id)
+	_, err := db.Exec(query, j.Company, j.Role, j.Link, j.Status, j.Description, j.Resume, j.Coverletter, j.Question, j.ResumeData, j.CoverData, j.Source, hasDoc, j.Id)
 	return err
 }
 
@@ -149,7 +166,7 @@ func DeleteJob(db *sql.DB, id int) error {
 
 func GetAllJobs(db *sql.DB) ([]model.Job, error) {
 	query := `SELECT id, company, role, link, status, created_at, description, resume, coverLetter, question, 
-	          COALESCE(resume_data, ''), COALESCE(cover_data, '') 
+	          COALESCE(resume_data, ''), COALESCE(cover_data, ''), COALESCE(source, ''), COALESCE(has_document, 0) 
               FROM Job 
               ORDER BY id DESC`
 
@@ -176,6 +193,8 @@ func GetAllJobs(db *sql.DB) ([]model.Job, error) {
 			&j.Question,
 			&j.ResumeData,
 			&j.CoverData,
+			&j.Source,
+			&j.HasDocument,
 		)
 
 		if err != nil {

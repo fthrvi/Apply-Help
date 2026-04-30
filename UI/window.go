@@ -735,7 +735,7 @@ func buildJSONEditor(jsonStr string) (fyne.CanvasObject, func() string) {
 	}
 }
 
-func BuildEditJobView(db *sql.DB, job model.Job, onSave func(), onCancel func()) fyne.CanvasObject {
+func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(), onCancel func()) fyne.CanvasObject {
 	var resumeDataEntry *widget.Entry
 	var coverDataEntry *widget.Entry
 
@@ -762,9 +762,25 @@ func BuildEditJobView(db *sql.DB, job model.Job, onSave func(), onCancel func())
 
 	linkBox := container.NewBorder(nil, nil, nil, openLinkBtn, link)
 
-	status := widget.NewSelectEntry([]string{"Pending", "Applied", "Interview", "Rejected", "Offer"})
-	status.SetText(job.Status)
-	status.Wrapping = fyne.TextWrapWord
+	currentStatus := job.Status
+	if currentStatus == "" {
+		currentStatus = "New"
+	}
+	status := widget.NewButton(currentStatus, nil)
+	status.OnTapped = func() {
+		var items []*fyne.MenuItem
+		for _, stat := range []string{"New", "Pending", "Processed", "Applied", "Interview", "Rejected", "Offer"} {
+			s := stat
+			items = append(items, fyne.NewMenuItem(s, func() {
+				currentStatus = s
+				status.SetText(s)
+			}))
+		}
+		menu := fyne.NewMenu("", items...)
+		pop := widget.NewPopUpMenu(menu, win.Canvas())
+		pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(status)
+		pop.ShowAtPosition(pos.Add(fyne.NewPos(0, status.Size().Height)))
+	}
 
 	description := widget.NewMultiLineEntry()
 	description.SetText(job.Description)
@@ -788,7 +804,7 @@ func BuildEditJobView(db *sql.DB, job model.Job, onSave func(), onCancel func())
 		job.Company = company.Text
 		job.Role = role.Text
 		job.Link = link.Text
-		job.Status = status.Text
+		job.Status = currentStatus
 		job.Description = description.Text
 		job.Resume = resume.Text
 		job.Coverletter = coverLetter.Text
@@ -866,6 +882,7 @@ func BuildEditJobView(db *sql.DB, job model.Job, onSave func(), onCancel func())
 				company.SetText(result.Company)
 				role.SetText(result.Role)
 				description.SetText(result.Description)
+				currentStatus = "Processed"
 				status.SetText("Processed")
 				resume.SetText(result.ResumePath)
 				coverLetter.SetText(result.CoverPath)
@@ -1003,7 +1020,8 @@ func CreateMainWindow(app fyne.App, db *sql.DB) fyne.Window {
 
 	var searchEntry *widget.Entry
 	var mainLayout *fyne.Container
-	var jobTable *JobTable
+	var docsTable *JobTable
+	var noDocsTable *JobTable
 
 	refreshTable := func() {
 		jobs, err := services.GetAllJobs(db)
@@ -1013,14 +1031,22 @@ func CreateMainWindow(app fyne.App, db *sql.DB) fyne.Window {
 		}
 		allJobs = jobs
 		query := strings.ToLower(searchEntry.Text)
-		var filtered []model.Job
+		
+		var docsFiltered []model.Job
+		var noDocsFiltered []model.Job
+		
 		for _, j := range allJobs {
 			if strings.Contains(strings.ToLower(j.Company), query) ||
 				strings.Contains(strings.ToLower(j.Role), query) {
-				filtered = append(filtered, j)
+				if j.HasDocument == 1 {
+					docsFiltered = append(docsFiltered, j)
+				} else {
+					noDocsFiltered = append(noDocsFiltered, j)
+				}
 			}
 		}
-		jobTable.UpdateData(filtered)
+		docsTable.UpdateData(docsFiltered)
+		noDocsTable.UpdateData(noDocsFiltered)
 		win.SetContent(mainLayout)
 	}
 
@@ -1044,20 +1070,38 @@ func CreateMainWindow(app fyne.App, db *sql.DB) fyne.Window {
 		win.SetContent(settingsView)
 	})
 
-	jobTable = NewJobTable(allJobs, func(job model.Job) {
-		editView := BuildEditJobView(db, job, func() {
+	onViewJob := func(job model.Job) {
+		editView := BuildEditJobView(win, db, job, func() {
 			refreshTable()
 		}, func() {
 			win.SetContent(mainLayout)
 		})
 		win.SetContent(editView)
-	})
+	}
+
+	var initialDocs []model.Job
+	var initialNoDocs []model.Job
+	for _, j := range allJobs {
+		if j.HasDocument == 1 {
+			initialDocs = append(initialDocs, j)
+		} else {
+			initialNoDocs = append(initialNoDocs, j)
+		}
+	}
+
+	docsTable = NewJobTable(initialDocs, onViewJob)
+	noDocsTable = NewJobTable(initialNoDocs, onViewJob)
+
+	tabs := container.NewAppTabs(
+		container.NewTabItem("With Documents", container.NewPadded(docsTable)),
+		container.NewTabItem("Without Documents", container.NewPadded(noDocsTable)),
+	)
 
 	topRow := container.NewBorder(nil, nil, nil, container.NewHBox(addBtn, settingsBtn), searchEntry)
 	mainLayout = container.NewBorder(
 		container.NewPadded(topRow),
 		nil, nil, nil,
-		container.NewPadded(jobTable),
+		tabs,
 	)
 
 	win.SetContent(mainLayout)
@@ -1068,7 +1112,8 @@ func CreateMainWindow(app fyne.App, db *sql.DB) fyne.Window {
 		for i := 0; i < 10; i++ {
 			time.Sleep(time.Duration(i*50) * time.Millisecond)
 			fyne.Do(func() {
-				tableResizer(jobTable.Table, win.Content())
+				tableResizer(docsTable.Table, win.Content())
+				tableResizer(noDocsTable.Table, win.Content())
 			})
 		}
 	}()
