@@ -9,6 +9,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -285,6 +286,75 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 		renderProjects()
 	})
 
+	importProjBtn := widget.NewButtonWithIcon("Import from GitHub", theme.DownloadIcon(), func() {
+		if strings.TrimSpace(services.GetSetting(db, services.KeyGithubUsername)) == "" {
+			dialog.ShowInformation("GitHub not configured",
+				"Set your GitHub username in Settings → API Keys → GitHub Integration first.", win)
+			return
+		}
+
+		applyImport := func(replace bool) {
+			progress := dialog.NewCustomWithoutButtons("Fetching repos from GitHub…", widget.NewProgressBarInfinite(), win)
+			progress.Show()
+			go func() {
+				ghCtx, err := services.GitHubContextForCurrentUser()
+				fyne.Do(func() { progress.Hide() })
+				if err != nil {
+					fyne.Do(func() { dialog.ShowError(err, win) })
+					return
+				}
+				if ghCtx == nil || len(ghCtx.Repos) == 0 {
+					fyne.Do(func() {
+						dialog.ShowInformation("No repos", "GitHub returned no repos for that username.", win)
+					})
+					return
+				}
+				newProjects := make([]model.Project, 0, len(ghCtx.Repos))
+				for _, r := range ghCtx.Repos {
+					newProjects = append(newProjects, services.RepoToProject(r))
+				}
+				fyne.Do(func() {
+					if replace {
+						ui.Projects = newProjects
+					} else {
+						ui.Projects = append(ui.Projects, newProjects...)
+					}
+					renderProjects()
+					_ = services.SaveUserInfo(db, ui)
+					dialog.ShowInformation("Imported",
+						fmt.Sprintf("Imported %d project(s) from GitHub.", len(newProjects)), win)
+				})
+			}()
+		}
+
+		if len(ui.Projects) == 0 {
+			applyImport(true)
+			return
+		}
+
+		// Three-way choice — Fyne's built-in ShowCustomConfirm is only
+		// binary, so build a small custom dialog with three buttons.
+		var chooseDialog dialog.Dialog
+		replaceBtn := widget.NewButton("Replace All", func() {
+			chooseDialog.Hide()
+			applyImport(true)
+		})
+		replaceBtn.Importance = widget.HighImportance
+		appendBtn := widget.NewButton("Append", func() {
+			chooseDialog.Hide()
+			applyImport(false)
+		})
+		cancelBtn := widget.NewButton("Cancel", func() {
+			chooseDialog.Hide()
+		})
+		body := container.NewVBox(
+			widget.NewLabel(fmt.Sprintf("You have %d existing project(s). Replace them with your GitHub repos, or append the imports?", len(ui.Projects))),
+			container.NewGridWithColumns(3, replaceBtn, appendBtn, cancelBtn),
+		)
+		chooseDialog = dialog.NewCustomWithoutButtons("Existing projects", body, win)
+		chooseDialog.Show()
+	})
+
 	eduAccordion := widget.NewAccordion()
 	var renderEducation func()
 	renderEducation = func() {
@@ -376,7 +446,10 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 	profileTabs := container.NewAppTabs(
 		container.NewTabItem("Personal Info", container.NewVScroll(container.NewPadded(personalInfo))),
 		container.NewTabItem("Experience", container.NewVScroll(container.NewPadded(container.NewVBox(expAccordion, addExpBtn)))),
-		container.NewTabItem("Project", container.NewVScroll(container.NewPadded(container.NewVBox(projAccordion, addProjBtn)))),
+		container.NewTabItem("Project", container.NewVScroll(container.NewPadded(container.NewVBox(
+			projAccordion,
+			container.NewGridWithColumns(2, addProjBtn, importProjBtn),
+		)))),
 		container.NewTabItem("Education", container.NewVScroll(container.NewPadded(container.NewVBox(eduAccordion, addEduBtn)))),
 		container.NewTabItem("Skills & Tech", container.NewVScroll(container.NewPadded(skillsInfo))),
 		container.NewTabItem("Awards", container.NewVScroll(container.NewPadded(awardsInfo))),

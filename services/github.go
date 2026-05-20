@@ -1,6 +1,7 @@
 package services
 
 import (
+	model "32-Adarsha/model"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -236,6 +237,66 @@ func ghReadme(client *http.Client, username, repo, token string) (string, error)
 		s = s[:1200] + "…"
 	}
 	return s, nil
+}
+
+// RepoToProject converts a GitHubRepo into a model.Project suitable for
+// the candidate's profile. Language + Topics become Technologies (deduped,
+// case-insensitive); Description and the first non-heading README line
+// become Bullets. Empty repos fall back to "<name> — <url>" so a project
+// without metadata still surfaces.
+func RepoToProject(r GitHubRepo) model.Project {
+	var techs []string
+	seen := map[string]bool{}
+	add := func(t string) {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			return
+		}
+		k := strings.ToLower(t)
+		if seen[k] {
+			return
+		}
+		seen[k] = true
+		techs = append(techs, t)
+	}
+	add(r.Language)
+	for _, t := range r.Topics {
+		add(t)
+	}
+
+	var bullets []string
+	if d := strings.TrimSpace(r.Description); d != "" {
+		bullets = append(bullets, d)
+	}
+	if line := firstReadmeLine(r.ReadmeSnippet); line != "" {
+		bullets = append(bullets, line)
+	}
+	if len(bullets) == 0 {
+		bullets = []string{r.Name + " — " + r.URL}
+	}
+
+	return model.Project{
+		Name:         r.Name,
+		Technologies: techs,
+		Bullets:      bullets,
+	}
+}
+
+// firstReadmeLine returns the first non-empty, non-heading line from a
+// README snippet, capped at ~200 chars. Used to produce a project bullet
+// when the repo's description field is empty or thin.
+func firstReadmeLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if len(line) > 200 {
+			return line[:200] + "…"
+		}
+		return line
+	}
+	return ""
 }
 
 // stripMarkdown removes the syntax that bulks up READMEs without carrying
