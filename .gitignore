@@ -2,6 +2,9 @@ jobs.db
 
 .DS_Store
 32-Adarsha
+build_test
+*.exe
 *.pdf
 Company/*
+
 
