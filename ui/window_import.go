@@ -139,7 +139,11 @@ func showImportResumeDialog(win fyne.Window, db *sql.DB, apply func(*model.UserI
 		}
 	}
 
-	content := container.NewVBox(
+	// Border layout so the JSON preview (the only thing in the center) gets
+	// every pixel not claimed by the controls above. A plain VBox would
+	// collapse the VScroll to its minimum height and leave the bottom of
+	// the dialog empty.
+	header := container.NewVBox(
 		widget.NewLabelWithStyle("Import Resume", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabel("Pick a resume (.pdf, .docx, .txt, or .md). The selected LLM will read it and fill in your profile fields. You can edit the JSON preview before applying."),
 		container.NewBorder(nil, nil, nil, browseBtn, filePathLabel),
@@ -150,10 +154,10 @@ func showImportResumeDialog(win fyne.Window, db *sql.DB, apply func(*model.UserI
 		statusLabel,
 		widget.NewSeparator(),
 		widget.NewLabel("Parsed JSON (editable)"),
-		container.NewVScroll(previewEntry),
 	)
+	content := container.NewBorder(header, nil, nil, nil, container.NewVScroll(previewEntry))
 
 	customDialog = dialog.NewCustom("Import Resume", "Close", content, win)
-	customDialog.Resize(fyne.NewSize(700, 700))
+	customDialog.Resize(fyne.NewSize(900, 800))
 	customDialog.Show()
 }
