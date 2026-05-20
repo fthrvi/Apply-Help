@@ -21,6 +21,9 @@ const (
 	KeyCoverTemplate  = "COVER_TEMPLATE"
 	KeyUserInfo       = "USER_INFO"
 	KeyLastCommitSHA  = "LAST_COMMIT_SHA"
+
+	KeyGithubUsername = "GITHUB_USERNAME"
+	KeyGithubToken    = "GITHUB_TOKEN"
 )
 
 // Default model identifiers used when the corresponding setting is empty.

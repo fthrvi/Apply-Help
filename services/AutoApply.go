@@ -265,6 +265,19 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 		userContext = fmt.Sprintf("RESUME_DATA: %s\nCOVER_DATA: %s", string(resumeDataRaw), string(coverDataRaw))
 	}
 
+	// Append GitHub context if the user has configured a github username.
+	// Failures here are non-fatal — the LLM can still work off the
+	// in-app résumé data, we just log so the user can see it in Error Logs.
+	if ghCtx, ghErr := GitHubContextForCurrentUser(); ghErr == nil && ghCtx != nil {
+		ghBytes, _ := json.Marshal(ghCtx)
+		userContext += "\n\nGitHub Profile and Repositories (additional context):\n" + string(ghBytes)
+		if logFn != nil {
+			logFn(fmt.Sprintf("  🐙 Including GitHub context (%d repos) for @%s\n", len(ghCtx.Repos), ghCtx.Username))
+		}
+	} else if ghErr != nil {
+		LogError(GlobalDB, fmt.Sprintf("GitHub context fetch failed: %v", ghErr))
+	}
+
 	// Combined Generation
 	if logFn != nil {
 		logFn("  ✨ Generating Resume & Cover Letter in a single LLM call...\n")
