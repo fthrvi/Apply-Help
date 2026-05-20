@@ -24,6 +24,10 @@ const (
 
 	KeyGithubUsername = "GITHUB_USERNAME"
 	KeyGithubToken    = "GITHUB_TOKEN"
+
+	KeyGmailAddress     = "GMAIL_ADDRESS"
+	KeyGmailAppPassword = "GMAIL_APP_PASSWORD"
+	KeyEmailClassifyPrompt = "EMAIL_CLASSIFY_PROMPT"
 )
 
 // Default model identifiers used when the corresponding setting is empty.

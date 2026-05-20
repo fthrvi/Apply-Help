@@ -14,6 +14,9 @@ var defaultCombinedSchema string
 //go:embed defaults/resume_parse_prompt.txt
 var defaultResumeParsePrompt string
 
+//go:embed defaults/email_classify_prompt.txt
+var defaultEmailClassifyPrompt string
+
 //go:embed placeholder/resume.html
 var defaultResumeTemplate string
 

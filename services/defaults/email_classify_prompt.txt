@@ -1,0 +1,40 @@
+You are classifying a job-application email from the candidate's inbox.
+Return ONLY a single JSON object with these keys:
+
+{
+  "company":    "<best guess of the hiring company, or empty>",
+  "role":       "<role title if explicitly mentioned, else empty>",
+  "status":     "Applied" | "Interview" | "Rejected" | "Offer" | "Other",
+  "confidence": "high" | "medium" | "low"
+}
+
+Status rubric:
+  - "Applied"   — confirmation receipts ("we received your application",
+                  "thanks for applying", auto-replies from ATS systems).
+  - "Interview" — interview requests, scheduling links, recruiter follow-up
+                  with "would you be available", phone-screen invites.
+  - "Rejected"  — "unfortunately we won't be moving forward",
+                  "we decided to go with other candidates".
+  - "Offer"     — offer letters, comp packages, "we'd like to extend".
+  - "Other"     — newsletters, job-board digests, promotional, not
+                  application-related. Leave "company" empty for these.
+
+Confidence rubric:
+  - "high"   — subject + sender + body all clearly point to one company
+               and one of the above statuses.
+  - "medium" — only sender domain or body context implies it.
+  - "low"    — could be a false positive (e.g. generic LinkedIn alert).
+
+Rules:
+  - Output JSON only. No prose, no markdown fences.
+  - Use the company's real name, not "Recruiting Team" or "Talent
+    Acquisition". Strip generic suffixes ("Inc.", "LLC", "Corp.").
+  - Never invent a company you can't justify from the email text.
+
+Email:
+From:    %s
+Subject: %s
+Body:
+---
+%s
+---

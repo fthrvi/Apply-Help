@@ -84,6 +84,12 @@ func CreateMainWindow(app fyne.App, db *sql.DB) fyne.Window {
 	})
 	addBtn.Importance = widget.HighImportance
 
+	syncBtn := widget.NewButtonWithIcon("Sync Email", theme.MailReplyIcon(), func() {
+		showGmailSyncDialog(win, db, func() {
+			refreshTable()
+		})
+	})
+
 	settingsBtn := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
 		settingsView := BuildSettingsView(win, db, func() {
 			win.SetContent(mainLayout)
@@ -118,7 +124,7 @@ func CreateMainWindow(app fyne.App, db *sql.DB) fyne.Window {
 		container.NewTabItem("Without Documents", container.NewPadded(noDocsTable)),
 	)
 
-	topRow := container.NewBorder(nil, nil, nil, container.NewHBox(addBtn, settingsBtn), searchEntry)
+	topRow := container.NewBorder(nil, nil, nil, container.NewHBox(addBtn, syncBtn, settingsBtn), searchEntry)
 	mainLayout = container.NewBorder(
 		container.NewPadded(topRow),
 		nil, nil, nil,

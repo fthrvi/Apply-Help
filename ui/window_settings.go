@@ -66,6 +66,14 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 	githubToken.SetPlaceHolder("Personal Access Token (optional, higher rate limit)")
 	githubToken.SetText(services.GetSetting(db, services.KeyGithubToken))
 
+	gmailAddress := widget.NewEntry()
+	gmailAddress.SetPlaceHolder("you@gmail.com")
+	gmailAddress.SetText(services.GetSetting(db, services.KeyGmailAddress))
+
+	gmailAppPassword := widget.NewPasswordEntry()
+	gmailAppPassword.SetPlaceHolder("16-char app password (myaccount.google.com/apppasswords)")
+	gmailAppPassword.SetText(services.GetSetting(db, services.KeyGmailAppPassword))
+
 	keysSaveBtn := widget.NewButton("Save API Keys", func() {
 		services.SaveSetting(db, services.KeyGeminiAPI1, geminiKey1.Text)
 		services.SaveSetting(db, services.KeyGeminiAPI2, geminiKey2.Text)
@@ -81,6 +89,8 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 		services.SaveSetting(db, services.KeyOpenAIModel, openaiModel.Text)
 		services.SaveSetting(db, services.KeyGithubUsername, githubUsername.Text)
 		services.SaveSetting(db, services.KeyGithubToken, githubToken.Text)
+		services.SaveSetting(db, services.KeyGmailAddress, gmailAddress.Text)
+		services.SaveSetting(db, services.KeyGmailAppPassword, gmailAppPassword.Text)
 	})
 	keysSaveBtn.Importance = widget.HighImportance
 
@@ -101,6 +111,11 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 		widget.NewLabel("Profile + top repos are injected into the LLM prompt during resume/cover generation. Username alone works (60 req/hr); add a token for 5000/hr."),
 		widget.NewLabel("GitHub Username"), githubUsername,
 		widget.NewLabel("GitHub Personal Access Token"), githubToken,
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("Gmail Sync", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel("Auto-update job statuses from your inbox. Requires 2-step verification on your Google account, then create an app password at myaccount.google.com/apppasswords."),
+		widget.NewLabel("Gmail Address"), gmailAddress,
+		widget.NewLabel("Gmail App Password"), gmailAppPassword,
 		container.NewPadded(keysSaveBtn),
 	)))
 

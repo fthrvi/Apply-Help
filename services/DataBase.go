@@ -58,6 +58,7 @@ func seedDefaults(db *sql.DB) {
 	SaveSetting(db, KeyCombinedPrompt, defaultCombinedPrompt)
 	SaveSetting(db, KeyCombinedSchema, defaultCombinedSchema)
 	SaveSetting(db, KeyResumeParsePrompt, defaultResumeParsePrompt)
+	SaveSetting(db, KeyEmailClassifyPrompt, defaultEmailClassifyPrompt)
 	SaveSetting(db, KeyResumeTemplate, defaultResumeTemplate)
 	SaveSetting(db, KeyCoverTemplate, defaultCoverTemplate)
 
@@ -118,6 +119,20 @@ func createTable(db *sql.DB) {
         timestamp DATETIME
     );`
 	_, _ = db.Exec(queryLogs)
+
+	// EmailScan table — tracks which inbox messages we've already
+	// classified so a re-sync doesn't re-spend LLM tokens on the same
+	// email. message_id is the RFC 2822 Message-ID header value.
+	queryScan := `
+    CREATE TABLE IF NOT EXISTS EmailScan (
+        message_id TEXT PRIMARY KEY,
+        seen_at DATETIME,
+        matched_job_id INTEGER,
+        derived_status TEXT,
+        company TEXT,
+        subject TEXT
+    );`
+	_, _ = db.Exec(queryScan)
 }
 
 func CreateJob(db *sql.DB, j model.Job) (int64, error) {

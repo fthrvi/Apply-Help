@@ -17,6 +17,22 @@ résumés and cover letters with an LLM. Written in Go using the
   experience, projects, education, and skills into the profile fields.
   The preview is editable JSON, so you can fix any LLM mistakes
   before applying.
+- **GitHub integration** — set a username (+ optional Personal Access
+  Token) in Settings → API Keys. Profile + top non-fork repos +
+  README snippets get injected into the LLM prompt during résumé
+  generation so the model can reference your actual projects.
+- **Open & Pre-fill** — on the edit-job view, click "Open & Pre-fill"
+  to launch a Chrome window pointed at the application URL with
+  common form fields (name, email, phone, LinkedIn, GitHub, location)
+  already populated from your profile. You review, fix anything
+  wrong, upload your résumé, and submit manually. Works best on
+  Greenhouse / Lever / Ashby ATS pages.
+- **Gmail status sync** — Settings → API Keys → Gmail Sync: paste
+  your address + a Google app password. Then click "Sync Email" on
+  the dashboard; the app reads recent inbox messages, classifies
+  each via your selected LLM, and updates the matching Job's
+  status (Applied / Interview / Rejected / Offer). Requires 2-step
+  verification + an app password from myaccount.google.com/apppasswords.
 - Supports Google Gemini, Anthropic Claude, and OpenAI / NVIDIA-NIM
   (OpenAI-compatible) as LLM backends — pick one per job.
 
