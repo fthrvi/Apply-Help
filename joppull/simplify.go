@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 
 	model "32-Adarsha/model"
@@ -16,36 +15,9 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// Commit helps us parse the GitHub API JSON response
+// Commit helps us parse the GitHub API JSON response.
 type Commit struct {
 	Sha string `json:"sha"`
-}
-
-// Job represents the extracted data structure (kept for reference, though we use model.Job for DB)
-type Job struct {
-	Company string `json:"company"`
-	Role    string `json:"role"`
-	Link    string `json:"link"`
-	ID      string `json:"id"`
-}
-
-// extractID grabs the unique identifier from the end of the URL path
-func extractID(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-
-	path := strings.TrimRight(u.Path, "/")
-	path = strings.TrimSuffix(path, "/apply")
-	path = strings.TrimSuffix(path, "/application")
-
-	parts := strings.Split(path, "/")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-
-	return ""
 }
 
 func PullLatestJobs(db *sql.DB) {
@@ -72,7 +44,7 @@ func PullLatestJobs(db *sql.DB) {
 	latestSha := commits[0].Sha
 	fmt.Printf("Successfully found latest commit: %s\n", latestSha)
 
-	lastCommitSha := services.GetSetting(db, "LAST_COMMIT_SHA")
+	lastCommitSha := services.GetSetting(db, services.KeyLastCommitSHA)
 	if lastCommitSha == latestSha {
 		fmt.Println("Already up to date with latest commit. No new jobs to pull.")
 		return
@@ -163,5 +135,5 @@ func PullLatestJobs(db *sql.DB) {
 
 	// 4. Output the results
 	fmt.Printf("Added %d new jobs from commit %s\n", jobsAdded, latestSha)
-	services.SaveSetting(db, "LAST_COMMIT_SHA", latestSha)
+	services.SaveSetting(db, services.KeyLastCommitSHA, latestSha)
 }

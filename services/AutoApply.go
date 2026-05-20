@@ -179,7 +179,7 @@ func RunAutoApply(jobURL string, manualDesc string, modelChoice string, logFn fu
 
 	// 2. Extract Info
 	if logFn != nil { logFn("🧠 STEP 2: Extracting role & company via LLM...\n") }
-	extractPrompt := GetSetting(GlobalDB, "EXTRACTION_PROMPT")
+	extractPrompt := GetSetting(GlobalDB, KeyExtractPrompt)
 	prompt := fmt.Sprintf(extractPrompt, text)
 	res, err := PromptAI(prompt, modelChoice)
 	if err != nil {
@@ -239,8 +239,8 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 	if logFn != nil {
 		logFn("  ✨ Generating Resume & Cover Letter in a single LLM call...\n")
 	}
-	combinedPromptTemplate := GetSetting(GlobalDB, "COMBINED_PROMPT")
-	combinedSchema := GetSetting(GlobalDB, "COMBINED_SCHEMA")
+	combinedPromptTemplate := GetSetting(GlobalDB, KeyCombinedPrompt)
+	combinedSchema := GetSetting(GlobalDB, KeyCombinedSchema)
 	prompt := fmt.Sprintf(combinedPromptTemplate, description, userContext, combinedSchema)
 
 	res, err := PromptAI(prompt, modelChoice)
@@ -287,12 +287,12 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 		logFn("  🖋️  Filling HTML templates...\n")
 	}
 
-	resTemplate := GetSetting(GlobalDB, "RESUME_TEMPLATE")
+	resTemplate := GetSetting(GlobalDB, KeyResumeTemplate)
 	if resTemplate == "" {
 		resTemplate = defaultResumeTemplate
 	}
 
-	covTemplate := GetSetting(GlobalDB, "COVER_TEMPLATE")
+	covTemplate := GetSetting(GlobalDB, KeyCoverTemplate)
 	if covTemplate == "" {
 		covTemplate = defaultCoverTemplate
 	}
@@ -353,11 +353,11 @@ func RegenerateFromData(company, role, resumeDataJSON, coverDataJSON string, log
 	coverPDF := filepath.Join(outDir, "cover.pdf")
 
 	// Fill Templates
-	resTemplate := GetSetting(GlobalDB, "RESUME_TEMPLATE")
+	resTemplate := GetSetting(GlobalDB, KeyResumeTemplate)
 	if resTemplate == "" {
 		resTemplate = defaultResumeTemplate
 	}
-	covTemplate := GetSetting(GlobalDB, "COVER_TEMPLATE")
+	covTemplate := GetSetting(GlobalDB, KeyCoverTemplate)
 	if covTemplate == "" {
 		covTemplate = defaultCoverTemplate
 	}

@@ -128,16 +128,16 @@ func CreateMainWindow(app fyne.App, db *sql.DB) fyne.Window {
 	win.SetContent(mainLayout)
 	win.Resize(fyne.NewSize(1200, 800))
 
-	go func() {
-		// Run a few times to ensure we catch the final window size after animations/maximize
-		for i := 0; i < 10; i++ {
-			time.Sleep(time.Duration(i*50) * time.Millisecond)
-			fyne.Do(func() {
-				tableResizer(docsTable.Table, win.Content())
-				tableResizer(noDocsTable.Table, win.Content())
-			})
-		}
-	}()
+	// The window switches to fullscreen on launch (see main.go); wait for
+	// the transition to settle before computing column widths from the final
+	// canvas size. A single timer fire replaces the previous polling goroutine
+	// that woke up 10 times during startup.
+	time.AfterFunc(750*time.Millisecond, func() {
+		fyne.Do(func() {
+			tableResizer(docsTable.Table, win.Content())
+			tableResizer(noDocsTable.Table, win.Content())
+		})
+	})
 
 	return win
 }

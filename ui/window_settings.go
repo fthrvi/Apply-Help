@@ -28,39 +28,49 @@ func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 
 	// 1. API Keys View
 	geminiKey1 := widget.NewPasswordEntry()
-	geminiKey1.SetText(services.GetSetting(db, "GEMINI_API_KEY"))
+	geminiKey1.SetText(services.GetSetting(db, services.KeyGeminiAPI1))
 	geminiKey2 := widget.NewPasswordEntry()
-	geminiKey2.SetText(services.GetSetting(db, "GEMINI_API_KEY_2"))
+	geminiKey2.SetText(services.GetSetting(db, services.KeyGeminiAPI2))
 
 	activeKey := widget.NewRadioGroup([]string{"Key 1", "Key 2"}, nil)
 	activeKey.Horizontal = true
-	if services.GetSetting(db, "ACTIVE_GEMINI_KEY") == "2" {
+	if services.GetSetting(db, services.KeyActiveGemini) == "2" {
 		activeKey.SetSelected("Key 2")
 	} else {
 		activeKey.SetSelected("Key 1")
 	}
 
 	geminiURL := widget.NewEntry()
-	geminiURL.SetText(services.GetSetting(db, "GEMINI_URL"))
+	geminiURL.SetText(services.GetSetting(db, services.KeyGeminiURL))
 	if geminiURL.Text == "" {
 		geminiURL.SetText("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")
 	}
 	claudeKey := widget.NewPasswordEntry()
-	claudeKey.SetText(services.GetSetting(db, "CLAUDE_API_KEY"))
+	claudeKey.SetText(services.GetSetting(db, services.KeyClaudeAPI))
 	openaiKey := widget.NewPasswordEntry()
-	openaiKey.SetText(services.GetSetting(db, "OPENAI_API_KEY"))
+	openaiKey.SetText(services.GetSetting(db, services.KeyOpenAIAPI))
+
+	claudeModel := widget.NewEntry()
+	claudeModel.SetPlaceHolder(services.DefaultClaudeModel)
+	claudeModel.SetText(services.GetSetting(db, services.KeyClaudeModel))
+
+	openaiModel := widget.NewEntry()
+	openaiModel.SetPlaceHolder(services.DefaultOpenAIModel)
+	openaiModel.SetText(services.GetSetting(db, services.KeyOpenAIModel))
 
 	keysSaveBtn := widget.NewButton("Save API Keys", func() {
-		services.SaveSetting(db, "GEMINI_API_KEY", geminiKey1.Text)
-		services.SaveSetting(db, "GEMINI_API_KEY_2", geminiKey2.Text)
+		services.SaveSetting(db, services.KeyGeminiAPI1, geminiKey1.Text)
+		services.SaveSetting(db, services.KeyGeminiAPI2, geminiKey2.Text)
 		if activeKey.Selected == "Key 2" {
-			services.SaveSetting(db, "ACTIVE_GEMINI_KEY", "2")
+			services.SaveSetting(db, services.KeyActiveGemini, "2")
 		} else {
-			services.SaveSetting(db, "ACTIVE_GEMINI_KEY", "1")
+			services.SaveSetting(db, services.KeyActiveGemini, "1")
 		}
-		services.SaveSetting(db, "GEMINI_URL", geminiURL.Text)
-		services.SaveSetting(db, "CLAUDE_API_KEY", claudeKey.Text)
-		services.SaveSetting(db, "OPENAI_API_KEY", openaiKey.Text)
+		services.SaveSetting(db, services.KeyGeminiURL, geminiURL.Text)
+		services.SaveSetting(db, services.KeyClaudeAPI, claudeKey.Text)
+		services.SaveSetting(db, services.KeyClaudeModel, claudeModel.Text)
+		services.SaveSetting(db, services.KeyOpenAIAPI, openaiKey.Text)
+		services.SaveSetting(db, services.KeyOpenAIModel, openaiModel.Text)
 	})
 	keysSaveBtn.Importance = widget.HighImportance
 
@@ -72,20 +82,23 @@ func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 		widget.NewLabel("Gemini Endpoint URL"), geminiURL,
 		widget.NewSeparator(),
 		widget.NewLabel("Claude API Key"), claudeKey,
+		widget.NewLabel("Claude Model"), claudeModel,
+		widget.NewSeparator(),
 		widget.NewLabel("OpenAI/NVIDIA API Key"), openaiKey,
+		widget.NewLabel("OpenAI/NVIDIA Model"), openaiModel,
 		container.NewPadded(keysSaveBtn),
 	)))
 
 	// 2. Prompts View
 	extractPrompt := widget.NewMultiLineEntry()
-	extractPrompt.SetText(services.GetSetting(db, "EXTRACTION_PROMPT"))
+	extractPrompt.SetText(services.GetSetting(db, services.KeyExtractPrompt))
 
 	combinedPrompt := widget.NewMultiLineEntry()
-	combinedPrompt.SetText(services.GetSetting(db, "COMBINED_PROMPT"))
+	combinedPrompt.SetText(services.GetSetting(db, services.KeyCombinedPrompt))
 
 	promptsSaveBtn := widget.NewButton("Save All Prompts", func() {
-		services.SaveSetting(db, "EXTRACTION_PROMPT", extractPrompt.Text)
-		services.SaveSetting(db, "COMBINED_PROMPT", combinedPrompt.Text)
+		services.SaveSetting(db, services.KeyExtractPrompt, extractPrompt.Text)
+		services.SaveSetting(db, services.KeyCombinedPrompt, combinedPrompt.Text)
 	})
 	promptsSaveBtn.Importance = widget.HighImportance
 
@@ -319,10 +332,10 @@ func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 
 	// 4. Output Schemas View
 	combinedSchemaEntry := widget.NewMultiLineEntry()
-	combinedSchemaEntry.SetText(services.GetSetting(db, "COMBINED_SCHEMA"))
+	combinedSchemaEntry.SetText(services.GetSetting(db, services.KeyCombinedSchema))
 
 	schemasSaveBtn := widget.NewButton("Save Schemas", func() {
-		services.SaveSetting(db, "COMBINED_SCHEMA", combinedSchemaEntry.Text)
+		services.SaveSetting(db, services.KeyCombinedSchema, combinedSchemaEntry.Text)
 	})
 	schemasSaveBtn.Importance = widget.HighImportance
 
@@ -336,14 +349,14 @@ func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 
 	// 5. HTML Templates View
 	resTemplateEntry := widget.NewMultiLineEntry()
-	resTemplateEntry.SetText(services.GetSetting(db, "RESUME_TEMPLATE"))
+	resTemplateEntry.SetText(services.GetSetting(db, services.KeyResumeTemplate))
 
 	covTemplateEntry := widget.NewMultiLineEntry()
-	covTemplateEntry.SetText(services.GetSetting(db, "COVER_TEMPLATE"))
+	covTemplateEntry.SetText(services.GetSetting(db, services.KeyCoverTemplate))
 
 	templateSaveBtn := widget.NewButton("Save Templates", func() {
-		services.SaveSetting(db, "RESUME_TEMPLATE", resTemplateEntry.Text)
-		services.SaveSetting(db, "COVER_TEMPLATE", covTemplateEntry.Text)
+		services.SaveSetting(db, services.KeyResumeTemplate, resTemplateEntry.Text)
+		services.SaveSetting(db, services.KeyCoverTemplate, covTemplateEntry.Text)
 	})
 	templateSaveBtn.Importance = widget.HighImportance
 

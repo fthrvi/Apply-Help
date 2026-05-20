@@ -21,14 +21,27 @@ import (
 // GLOBAL SETUP & CONFIGURATION
 // ═════════════════════════════════════════════════════════════════════════════
 
-const (
-	FastModel       = "google/gemma-3-27b-it"
-	GenerationModel = "google/gemma-3-27b-it"
-)
-
 var (
 	openAIClient *openai.Client
 )
+
+// openAIModel returns the configured OpenAI/NVIDIA model from settings,
+// falling back to DefaultOpenAIModel when unset.
+func openAIModel() string {
+	if m := GetSetting(GlobalDB, KeyOpenAIModel); m != "" {
+		return m
+	}
+	return DefaultOpenAIModel
+}
+
+// claudeModel returns the configured Anthropic model from settings,
+// falling back to DefaultClaudeModel when unset.
+func claudeModel() string {
+	if m := GetSetting(GlobalDB, KeyClaudeModel); m != "" {
+		return m
+	}
+	return DefaultClaudeModel
+}
 
 func init() {
 	// Load .env from (a) the current working directory (dev convenience) or
@@ -57,7 +70,7 @@ func PromptAI(prompt string, modelChoice string) (string, error) {
 		return svc.Chat(prompt)
 	case "openai":
 		// Fallback to the JSON-enforced OpenAI call if needed, or implement a raw text return here.
-		res := CallLLM(prompt, "You are a helpful assistant.", FastModel, 4096)
+		res := CallLLM(prompt, "You are a helpful assistant.", openAIModel(), 4096)
 		if !res.Success {
 			return "", res.Error
 		}
@@ -86,7 +99,7 @@ func getOpenAIClient() *openai.Client {
 		return openAIClient
 	}
 
-	openAIKey := GetSetting(GlobalDB, "OPENAI_API_KEY")
+	openAIKey := GetSetting(GlobalDB, KeyOpenAIAPI)
 	if openAIKey == "" {
 		openAIKey = os.Getenv("AIKEY")
 	}
@@ -108,10 +121,12 @@ func CallLLM(prompt, system, model string, maxTokens int) LLMResult {
 		return LLMResult{Success: false, Error: fmt.Errorf("OpenAI/NVIDIA API Key not found in settings")}
 	}
 
-	// Adjust model if we are using real OpenAI
-	apiKey := GetSetting(GlobalDB, "OPENAI_API_KEY")
-	if strings.HasPrefix(apiKey, "sk-") && strings.Contains(model, "gemma") {
-		model = "gpt-4o" // Use a standard OpenAI model if the key is sk-
+	// Convenience: if the user pasted a real OpenAI key (sk-) but never
+	// updated the model from the gemma-on-NVIDIA default, swap in gpt-4o so
+	// the first call works. Once they set KeyOpenAIModel themselves we trust it.
+	apiKey := GetSetting(GlobalDB, KeyOpenAIAPI)
+	if model == DefaultOpenAIModel && strings.HasPrefix(apiKey, "sk-") {
+		model = "gpt-4o"
 	}
 
 	ctx := context.Background()
@@ -187,16 +202,16 @@ type GeminiService struct {
 }
 
 func NewGeminiService() *GeminiService {
-	keyName := "GEMINI_API_KEY"
-	if GetSetting(GlobalDB, "ACTIVE_GEMINI_KEY") == "2" {
-		keyName = "GEMINI_API_KEY_2"
+	keyName := KeyGeminiAPI1
+	if GetSetting(GlobalDB, KeyActiveGemini) == "2" {
+		keyName = KeyGeminiAPI2
 	}
 
 	apiKey := GetSetting(GlobalDB, keyName)
 	if apiKey == "" {
 		apiKey = os.Getenv("API_KEY")
 	}
-	apiURL := GetSetting(GlobalDB, "GEMINI_URL")
+	apiURL := GetSetting(GlobalDB, KeyGeminiURL)
 	if apiURL == "" {
 		apiURL = os.Getenv("URL")
 	}
@@ -283,7 +298,7 @@ type AnthropicService struct {
 }
 
 func NewAnthropicService() *AnthropicService {
-	apiKey := GetSetting(GlobalDB, "CLAUDE_API_KEY")
+	apiKey := GetSetting(GlobalDB, KeyClaudeAPI)
 	if apiKey == "" {
 		apiKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
@@ -301,7 +316,7 @@ func (s *AnthropicService) Chat(prompt string) (string, error) {
 	}
 
 	payload := AnthropicRequest{
-		Model:     "claude-3-7-sonnet-latest",
+		Model:     claudeModel(),
 		MaxTokens: 4096,
 		Messages: []struct {
 			Role    string `json:"role"`

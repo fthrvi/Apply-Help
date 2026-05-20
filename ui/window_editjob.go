@@ -3,7 +3,9 @@ package ui
 import (
 	model "32-Adarsha/model"
 	"32-Adarsha/services"
+	"crypto/sha1"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -47,16 +49,36 @@ func renderPDFToCanvas(pdfPath string) fyne.CanvasObject {
 			return
 		}
 
-		outDir := "/tmp"
-		fmt.Printf("🔨 Preview: Running qlmanage for %s\n", pdfPath)
-		cmd := exec.Command("qlmanage", "-t", "-s", "2048", "-o", outDir, pdfPath)
-		err = cmd.Run()
+		// qlmanage names the PNG after the input file's basename. Every
+		// generated PDF is "resume.pdf" or "cover.pdf" (just in a different
+		// per-company subdir), so previewing two jobs back-to-back used to
+		// collide at /tmp/resume.pdf.png. Hash the full source path and
+		// symlink it into a per-user cache dir with a unique name first.
+		cacheRoot, err := os.UserCacheDir()
 		if err != nil {
+			cacheRoot = os.TempDir()
+		}
+		previewDir := filepath.Join(cacheRoot, "applyhelp", "previews")
+		_ = os.MkdirAll(previewDir, 0700)
+
+		sum := sha1.Sum([]byte(pdfPath))
+		linkBase := hex.EncodeToString(sum[:8]) + "_" + filepath.Base(pdfPath)
+		linkPath := filepath.Join(previewDir, linkBase)
+		_ = os.Remove(linkPath)
+		if err := os.Symlink(pdfPath, linkPath); err != nil {
+			// Fall back to a copy when symlinks aren't available.
+			if data, rerr := os.ReadFile(pdfPath); rerr == nil {
+				_ = os.WriteFile(linkPath, data, 0600)
+			}
+		}
+
+		fmt.Printf("🔨 Preview: Running qlmanage for %s\n", pdfPath)
+		cmd := exec.Command("qlmanage", "-t", "-s", "2048", "-o", previewDir, linkPath)
+		if err := cmd.Run(); err != nil {
 			fmt.Printf("❌ Preview: qlmanage failed: %v\n", err)
 		}
 
-		baseName := filepath.Base(pdfPath)
-		pngPath := filepath.Join(outDir, baseName+".png")
+		pngPath := filepath.Join(previewDir, linkBase+".png")
 		fmt.Printf("🖼️ Preview: Looking for PNG %s\n", pngPath)
 
 		fyne.Do(func() {

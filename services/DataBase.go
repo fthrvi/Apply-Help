@@ -50,19 +50,19 @@ func seedDefaults(db *sql.DB) {
 	}
 
 	// API Keys (Placeholders)
-	SaveSetting(db, "GEMINI_URL", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")
+	SaveSetting(db, KeyGeminiURL, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")
 
 	// Prompts, schemas, and HTML templates come from embedded defaults so a
 	// fresh install works without any sibling files on disk.
-	SaveSetting(db, "EXTRACTION_PROMPT", defaultExtractionPrompt)
-	SaveSetting(db, "COMBINED_PROMPT", defaultCombinedPrompt)
-	SaveSetting(db, "COMBINED_SCHEMA", defaultCombinedSchema)
-	SaveSetting(db, "RESUME_TEMPLATE", defaultResumeTemplate)
-	SaveSetting(db, "COVER_TEMPLATE", defaultCoverTemplate)
+	SaveSetting(db, KeyExtractPrompt, defaultExtractionPrompt)
+	SaveSetting(db, KeyCombinedPrompt, defaultCombinedPrompt)
+	SaveSetting(db, KeyCombinedSchema, defaultCombinedSchema)
+	SaveSetting(db, KeyResumeTemplate, defaultResumeTemplate)
+	SaveSetting(db, KeyCoverTemplate, defaultCoverTemplate)
 
 	// Initial User Info Structure
 	emptyUserInfo := `{"name":"","email":"","phone":"","location":"","linkedin":"","github":"","education":[],"experience":[],"projects":[],"skills":{"languages":[],"frameworks":[],"dev_tools":[],"databases":[]},"awards":[]}`
-	SaveSetting(db, "USER_INFO", emptyUserInfo)
+	SaveSetting(db, KeyUserInfo, emptyUserInfo)
 }
 
 func createTable(db *sql.DB) {
@@ -217,7 +217,7 @@ func SaveSetting(db *sql.DB, key, value string) error {
 }
 
 func GetUserInfo(db *sql.DB) (*model.UserInfo, error) {
-	val := GetSetting(db, "USER_INFO")
+	val := GetSetting(db, KeyUserInfo)
 	if val == "" {
 		return &model.UserInfo{}, nil
 	}
@@ -235,7 +235,7 @@ func SaveUserInfo(db *sql.DB, ui *model.UserInfo) error {
 	if err != nil {
 		return err
 	}
-	return SaveSetting(db, "USER_INFO", string(data))
+	return SaveSetting(db, KeyUserInfo, string(data))
 }
 
 func LogError(db *sql.DB, message string) {
