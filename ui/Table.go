@@ -1,7 +1,7 @@
 package ui
 
 import (
-	model "32-Adarsha/Model"
+	model "32-Adarsha/model"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"

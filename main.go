@@ -4,7 +4,7 @@ import (
 	"32-Adarsha/services"
 	"32-Adarsha/theme"
 	"32-Adarsha/ui"
-	pull "32-Adarsha/Joppull"
+	pull "32-Adarsha/joppull"
 
 	"fyne.io/fyne/v2/app"
 )

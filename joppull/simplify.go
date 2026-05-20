@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strings"
 
-	model "32-Adarsha/Model"
+	model "32-Adarsha/model"
 	"32-Adarsha/services"
 
 	"github.com/PuerkitoBio/goquery"
