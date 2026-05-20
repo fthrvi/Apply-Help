@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -19,7 +21,8 @@ type ErrorLog struct {
 var GlobalDB *sql.DB
 
 func InitDb() *sql.DB {
-	db, err := sql.Open("sqlite", "jobs.db")
+	dbPath := filepath.Join(AppDir(), "jobs.db")
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		log.Fatal("Failed to open database:", err)
 	}
@@ -27,6 +30,10 @@ func InitDb() *sql.DB {
 	if err := db.Ping(); err != nil {
 		log.Fatal("Database unreachable:", err)
 	}
+
+	// API keys live in this file; restrict to owner-read so a multi-user
+	// machine doesn't expose them via default 0644 perms.
+	_ = os.Chmod(dbPath, 0600)
 
 	createTable(db)
 	seedDefaults(db)

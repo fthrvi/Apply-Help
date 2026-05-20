@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"os"
@@ -31,9 +32,7 @@ type AutoApplyResult struct {
 // ═════════════════════════════════════════════════════════════════════════════
 
 func getAutoApplyDir() string {
-	// Priority 1: Current directory (AutoApplyUI)
-	abs, _ := filepath.Abs(".")
-	return abs
+	return AppDir()
 }
 
 func sanitizeFilename(name string) string {
@@ -79,54 +78,72 @@ func FetchHTML(url string) (string, error) {
 		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Cap response at 5 MB so an adversarial server can't stream forever.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5<<20))
 	if err != nil {
 		return "", err
 	}
 	return string(body), nil
 }
 
-func StripHTML(html string) string {
+func StripHTML(htmlStr string) string {
 	// Remove script and style tags first
 	reScript := regexp.MustCompile(`(?s)<script.*?>.*?</script>`)
 	reStyle := regexp.MustCompile(`(?s)<style.*?>.*?</style>`)
-	html = reScript.ReplaceAllString(html, " ")
-	html = reStyle.ReplaceAllString(html, " ")
+	htmlStr = reScript.ReplaceAllString(htmlStr, " ")
+	htmlStr = reStyle.ReplaceAllString(htmlStr, " ")
 
 	// Remove all other tags
 	reTags := regexp.MustCompile(`<[^>]*>`)
-	text := reTags.ReplaceAllString(html, " ")
+	text := reTags.ReplaceAllString(htmlStr, " ")
 
 	// Collapse whitespace
 	reSpace := regexp.MustCompile(`\s+`)
 	return strings.TrimSpace(reSpace.ReplaceAllString(text, " "))
 }
 
-func FillTemplate(templatePath, outputPath string, data map[string]any) error {
-	content, err := os.ReadFile(templatePath)
-	if err != nil {
-		return err
-	}
-	finalHTML := FillTemplateString(string(content), data)
-	return os.WriteFile(outputPath, []byte(finalHTML), 0644)
-}
-
-func FillTemplateString(html string, data map[string]any) string {
+// FillTemplateString substitutes {- KEY -} placeholders in htmlStr with values
+// from data. Values are HTML-escaped before insertion: the substituted content
+// comes from an LLM response, and unescaped insertion would let a malicious or
+// glitched response inject scripts, images, or iframes that Chrome would
+// execute or fetch during PDF rendering.
+func FillTemplateString(htmlStr string, data map[string]any) string {
 	pattern := regexp.MustCompile(`\{-\s*(.*?)\s*-\}`)
-	return pattern.ReplaceAllStringFunc(html, func(match string) string {
+	return pattern.ReplaceAllStringFunc(htmlStr, func(match string) string {
 		keyword := strings.TrimSpace(match[2 : len(match)-2])
 		if val, ok := data[keyword]; ok {
-			return fmt.Sprintf("%v", val)
+			return html.EscapeString(fmt.Sprintf("%v", val))
 		}
 		return match
 	})
 }
 
 func HtmlToPdf(htmlPath, pdfPath string) error {
-	// Use Chrome headless for better HTML rendering
+	// Use Chrome headless for HTML→PDF.
+	//   --disable-javascript: neutralizes any JS that snuck into the HTML
+	//     (the template's substituted values come from an LLM and are not
+	//     trusted; FillTemplateString escapes them, but defense in depth).
+	//   --virtual-time-budget: gives web fonts time to load.
+	//   file:// URL: explicit, avoids Chrome treating the path as something else.
 	chromePath := "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-	cmd := exec.Command(chromePath, "--headless", "--disable-gpu", "--print-to-pdf="+pdfPath, htmlPath)
-	return cmd.Run()
+	absHTML, err := filepath.Abs(htmlPath)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(
+		chromePath,
+		"--headless",
+		"--disable-gpu",
+		"--disable-javascript",
+		"--virtual-time-budget=2000",
+		"--print-to-pdf="+pdfPath,
+		"file://"+absHTML,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("chrome: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
