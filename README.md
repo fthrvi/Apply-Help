@@ -12,6 +12,11 @@ résumés and cover letters with an LLM. Written in Go using the
 - For a given job: fetches the posting URL, asks an LLM to extract
   company and role, generates a tailored résumé + cover-letter JSON,
   fills HTML templates, and renders to PDF.
+- **Import your resume** (PDF, DOCX, or TXT) from Settings → User
+  Profile → Import Resume. The selected LLM extracts your contact,
+  experience, projects, education, and skills into the profile fields.
+  The preview is editable JSON, so you can fix any LLM mistakes
+  before applying.
 - Supports Google Gemini, Anthropic Claude, and OpenAI / NVIDIA-NIM
   (OpenAI-compatible) as LLM backends — pick one per job.
 

@@ -57,6 +57,7 @@ func seedDefaults(db *sql.DB) {
 	SaveSetting(db, KeyExtractPrompt, defaultExtractionPrompt)
 	SaveSetting(db, KeyCombinedPrompt, defaultCombinedPrompt)
 	SaveSetting(db, KeyCombinedSchema, defaultCombinedSchema)
+	SaveSetting(db, KeyResumeParsePrompt, defaultResumeParsePrompt)
 	SaveSetting(db, KeyResumeTemplate, defaultResumeTemplate)
 	SaveSetting(db, KeyCoverTemplate, defaultCoverTemplate)
 

@@ -13,7 +13,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
+func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasObject {
 	// Left Sidebar
 	categories := []string{"User Profile", "API Keys", "System Prompts", "Output Schemas", "HTML Templates", "Error Logs"}
 	list := widget.NewList(
@@ -319,6 +319,30 @@ func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 	})
 	saveProfileBtn.Importance = widget.HighImportance
 
+	// applyParsedUserInfo overwrites the current profile (in-memory + UI +
+	// persisted) with parsed. Called from the resume-import preview dialog.
+	applyParsedUserInfo := func(parsed *model.UserInfo) {
+		*ui = *parsed
+		nameEntry.SetText(ui.Name)
+		emailEntry.SetText(ui.Email)
+		phoneEntry.SetText(ui.Phone)
+		locationEntry.SetText(ui.Location)
+		languagesEntry.SetText(strings.Join(ui.Skills.Languages, ", "))
+		frameworksEntry.SetText(strings.Join(ui.Skills.Frameworks, ", "))
+		devToolsEntry.SetText(strings.Join(ui.Skills.DevTools, ", "))
+		databasesEntry.SetText(strings.Join(ui.Skills.Databases, ", "))
+		awardsEntry.SetText(strings.Join(ui.Awards, "\n"))
+		renderExperiences()
+		renderProjects()
+		renderEducation()
+		_ = services.SaveUserInfo(db, ui)
+	}
+
+	importBtn := widget.NewButtonWithIcon("Import Resume (PDF / DOCX / TXT)", theme.UploadIcon(), func() {
+		showImportResumeDialog(win, db, applyParsedUserInfo)
+	})
+	importBtn.Importance = widget.HighImportance
+
 	profileTabs := container.NewAppTabs(
 		container.NewTabItem("Personal Info", container.NewVScroll(container.NewPadded(personalInfo))),
 		container.NewTabItem("Experience", container.NewVScroll(container.NewPadded(container.NewVBox(expAccordion, addExpBtn)))),
@@ -328,7 +352,12 @@ func BuildSettingsView(db *sql.DB, onBack func()) fyne.CanvasObject {
 		container.NewTabItem("Awards", container.NewVScroll(container.NewPadded(awardsInfo))),
 	)
 
-	profileView := container.NewBorder(nil, container.NewPadded(saveProfileBtn), nil, nil, profileTabs)
+	profileView := container.NewBorder(
+		container.NewPadded(importBtn),
+		container.NewPadded(saveProfileBtn),
+		nil, nil,
+		profileTabs,
+	)
 
 	// 4. Output Schemas View
 	combinedSchemaEntry := widget.NewMultiLineEntry()

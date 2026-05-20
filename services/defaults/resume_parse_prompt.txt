@@ -1,0 +1,69 @@
+You are extracting structured data from a candidate's resume. Given the
+resume text below, return ONLY a single valid JSON object matching this
+exact schema. Do NOT invent data — if a field cannot be determined from
+the resume, leave it as an empty string or empty array.
+
+Schema:
+
+{
+  "name": "",
+  "email": "",
+  "phone": "",
+  "location": "",
+  "linkedin": "",
+  "github": "",
+  "education": [
+    {
+      "degree": "",
+      "institution": "",
+      "location": "",
+      "start_date": "",
+      "end_date": "",
+      "coursework": []
+    }
+  ],
+  "experience": [
+    {
+      "title": "",
+      "company": "",
+      "location": "",
+      "start_date": "",
+      "end_date": "",
+      "bullets": [],
+      "keywords": []
+    }
+  ],
+  "projects": [
+    {
+      "name": "",
+      "technologies": [],
+      "bullets": []
+    }
+  ],
+  "skills": {
+    "languages": [],
+    "frameworks": [],
+    "dev_tools": [],
+    "databases": []
+  },
+  "awards": []
+}
+
+Rules:
+- Output JSON only. No prose, no markdown fences, no commentary.
+- For experience and project bullets, preserve the original wording — do
+  not paraphrase or summarize. One bullet point per array element, in the
+  order it appears in the resume.
+- For each experience entry, also populate "keywords" with 5-10 technical
+  terms (languages, frameworks, tools) that describe the role.
+- Dates: keep the resume's own format (e.g. "Aug 2024 – Dec 2024" or
+  "2022", whatever appears).
+- LinkedIn and GitHub: extract just the URL or username if present.
+- Skills: bucket technologies into languages / frameworks / dev_tools /
+  databases as you see fit. If the resume has a single "Skills" list,
+  classify each item into the best-fit bucket.
+
+Resume text:
+---
+%s
+---

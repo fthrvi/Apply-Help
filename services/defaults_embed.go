@@ -11,6 +11,9 @@ var defaultCombinedPrompt string
 //go:embed defaults/combined_schema.json
 var defaultCombinedSchema string
 
+//go:embed defaults/resume_parse_prompt.txt
+var defaultResumeParsePrompt string
+
 //go:embed placeholder/resume.html
 var defaultResumeTemplate string
 

@@ -85,7 +85,7 @@ func CreateMainWindow(app fyne.App, db *sql.DB) fyne.Window {
 	addBtn.Importance = widget.HighImportance
 
 	settingsBtn := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
-		settingsView := BuildSettingsView(db, func() {
+		settingsView := BuildSettingsView(win, db, func() {
 			win.SetContent(mainLayout)
 		})
 		win.SetContent(settingsView)
