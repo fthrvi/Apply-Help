@@ -18,6 +18,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/chromedp/chromedp"
@@ -202,7 +203,24 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 		}
 	})
 
-	linkBox := container.NewBorder(nil, nil, nil, openLinkBtn, link)
+	prefillBtn := widget.NewButtonWithIcon("Open & Pre-fill", theme.ComputerIcon(), func() {
+		userInfo, err := services.GetUserInfo(db)
+		if err != nil || userInfo == nil {
+			dialog.ShowError(fmt.Errorf("could not load user info: %v", err), win)
+			return
+		}
+		if userInfo.Name == "" && userInfo.Email == "" {
+			dialog.ShowInformation("Profile is empty",
+				"Fill in your name and email in Settings → User Profile before using Open & Pre-fill.", win)
+			return
+		}
+		if err := services.OpenAndPreFill(link.Text, userInfo); err != nil {
+			dialog.ShowError(err, win)
+		}
+	})
+
+	linkActions := container.NewHBox(openLinkBtn, prefillBtn)
+	linkBox := container.NewBorder(nil, nil, nil, linkActions, link)
 
 	currentStatus := job.Status
 	if currentStatus == "" {
