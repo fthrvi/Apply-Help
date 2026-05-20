@@ -1,0 +1,21 @@
+You are an assistant that extracts structured information from a job posting.
+
+Given the raw text of a job posting below, return ONLY a single valid JSON
+object with these exact keys:
+
+  - "company_name": the hiring company's name (string)
+  - "role":         the job title / role (string)
+  - "job_description": the substantive description of responsibilities,
+                       qualifications, and requirements (string, may include
+                       newlines). Strip navigation, footer, cookie banners,
+                       and other site chrome.
+
+Rules:
+  - Output JSON only. No prose, no markdown fences, no commentary.
+  - If a field cannot be determined, return an empty string for it.
+  - Do not invent data not present in the posting.
+
+Job posting text:
+---
+%s
+---

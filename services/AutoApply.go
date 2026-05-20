@@ -272,14 +272,12 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 
 	resTemplate := GetSetting(GlobalDB, "RESUME_TEMPLATE")
 	if resTemplate == "" {
-		content, _ := os.ReadFile(filepath.Join(baseDir, "placeholder", "resume.html"))
-		resTemplate = string(content)
+		resTemplate = defaultResumeTemplate
 	}
 
 	covTemplate := GetSetting(GlobalDB, "COVER_TEMPLATE")
 	if covTemplate == "" {
-		content, _ := os.ReadFile(filepath.Join(baseDir, "placeholder", "cover.html"))
-		covTemplate = string(content)
+		covTemplate = defaultCoverTemplate
 	}
 
 	os.WriteFile(resumeHTML, []byte(FillTemplateString(resTemplate, resumeJSON)), 0644)
@@ -287,8 +285,14 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 
 	// Convert to PDF
 	if logFn != nil { logFn("  📄 Converting to PDF (cupsfilter)...\n") }
-	HtmlToPdf(resumeHTML, resumePDF)
-	HtmlToPdf(coverHTML, coverPDF)
+	if err := HtmlToPdf(resumeHTML, resumePDF); err != nil {
+		LogError(GlobalDB, fmt.Sprintf("resume PDF failed: %v", err))
+		return nil, fmt.Errorf("resume PDF generation failed: %v", err)
+	}
+	if err := HtmlToPdf(coverHTML, coverPDF); err != nil {
+		LogError(GlobalDB, fmt.Sprintf("cover PDF failed: %v", err))
+		return nil, fmt.Errorf("cover PDF generation failed: %v", err)
+	}
 
 	// Also save to Downloads
 	saveToDownloads(resumePDF, company, "resume.pdf")
@@ -334,20 +338,24 @@ func RegenerateFromData(company, role, resumeDataJSON, coverDataJSON string, log
 	// Fill Templates
 	resTemplate := GetSetting(GlobalDB, "RESUME_TEMPLATE")
 	if resTemplate == "" {
-		content, _ := os.ReadFile(filepath.Join(baseDir, "placeholder", "resume.html"))
-		resTemplate = string(content)
+		resTemplate = defaultResumeTemplate
 	}
 	covTemplate := GetSetting(GlobalDB, "COVER_TEMPLATE")
 	if covTemplate == "" {
-		content, _ := os.ReadFile(filepath.Join(baseDir, "placeholder", "cover.html"))
-		covTemplate = string(content)
+		covTemplate = defaultCoverTemplate
 	}
 
 	os.WriteFile(resumeHTML, []byte(FillTemplateString(resTemplate, resumeJSON)), 0644)
 	os.WriteFile(coverHTML, []byte(FillTemplateString(covTemplate, coverJSON)), 0644)
 
-	HtmlToPdf(resumeHTML, resumePDF)
-	HtmlToPdf(coverHTML, coverPDF)
+	if err := HtmlToPdf(resumeHTML, resumePDF); err != nil {
+		LogError(GlobalDB, fmt.Sprintf("resume PDF failed: %v", err))
+		return nil, fmt.Errorf("resume PDF generation failed: %v", err)
+	}
+	if err := HtmlToPdf(coverHTML, coverPDF); err != nil {
+		LogError(GlobalDB, fmt.Sprintf("cover PDF failed: %v", err))
+		return nil, fmt.Errorf("cover PDF generation failed: %v", err)
+	}
 
 	// Also save to Downloads
 	saveToDownloads(resumePDF, company, "resume.pdf")

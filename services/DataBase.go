@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log"
-	"os"
-	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -47,28 +45,13 @@ func seedDefaults(db *sql.DB) {
 	// API Keys (Placeholders)
 	SaveSetting(db, "GEMINI_URL", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")
 
-	// Helper to read default files
-	readDef := func(name string) string {
-		data, _ := os.ReadFile(filepath.Join("defaults", name))
-		return string(data)
-	}
-
-	// Prompts from files
-	SaveSetting(db, "EXTRACTION_PROMPT", readDef("extraction_prompt.txt"))
-	SaveSetting(db, "COMBINED_PROMPT", readDef("combined_prompt.txt"))
-
-	// Schemas from files
-	SaveSetting(db, "COMBINED_SCHEMA", readDef("combined_schema.json"))
-
-	// Helper to read placeholder files
-	readPlace := func(name string) string {
-		data, _ := os.ReadFile(filepath.Join("placeholder", name))
-		return string(data)
-	}
-
-	// Templates from placeholder folder
-	SaveSetting(db, "RESUME_TEMPLATE", readPlace("resume.html"))
-	SaveSetting(db, "COVER_TEMPLATE", readPlace("cover.html"))
+	// Prompts, schemas, and HTML templates come from embedded defaults so a
+	// fresh install works without any sibling files on disk.
+	SaveSetting(db, "EXTRACTION_PROMPT", defaultExtractionPrompt)
+	SaveSetting(db, "COMBINED_PROMPT", defaultCombinedPrompt)
+	SaveSetting(db, "COMBINED_SCHEMA", defaultCombinedSchema)
+	SaveSetting(db, "RESUME_TEMPLATE", defaultResumeTemplate)
+	SaveSetting(db, "COVER_TEMPLATE", defaultCoverTemplate)
 
 	// Initial User Info Structure
 	emptyUserInfo := `{"name":"","email":"","phone":"","location":"","linkedin":"","github":"","education":[],"experience":[],"projects":[],"skills":{"languages":[],"frameworks":[],"dev_tools":[],"databases":[]},"awards":[]}`
@@ -82,7 +65,7 @@ func createTable(db *sql.DB) {
         company TEXT,
         role TEXT,
         link TEXT,
-        status INTEGER,
+        status TEXT,
         created_at DATETIME,
         description TEXT,
         resume TEXT,

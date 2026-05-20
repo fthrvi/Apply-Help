@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 
@@ -29,19 +28,22 @@ const (
 
 var (
 	openAIClient *openai.Client
-	scriptDir    string
 )
 
 func init() {
-	_, filename, _, ok := runtime.Caller(0)
-	if ok {
-		scriptDir = filepath.Dir(filename)
-	} else {
-		scriptDir = "."
+	// Load .env from (a) the current working directory (dev convenience) or
+	// (b) the user's config dir under "applyhelp". The previous implementation
+	// used runtime.Caller(0), which returns the build-time source path and is
+	// meaningless in a shipped binary.
+	candidates := []string{".env"}
+	if cfgDir, err := os.UserConfigDir(); err == nil {
+		candidates = append(candidates, filepath.Join(cfgDir, "applyhelp", ".env"))
 	}
-
-	envPath := filepath.Join(scriptDir, ".env")
-	_ = godotenv.Load(envPath)
+	for _, p := range candidates {
+		if godotenv.Load(p) == nil {
+			return
+		}
+	}
 }
 
 // PromptAI is a master router that calls the correct Go service based on the UI dropdown.
@@ -119,7 +121,7 @@ func CallLLM(prompt, system, model string, maxTokens int) LLMResult {
 			{Role: openai.ChatMessageRoleSystem, Content: system},
 			{Role: openai.ChatMessageRoleUser, Content: prompt},
 		},
-		Temperature: 1.7,
+		Temperature: 0.7,
 		MaxTokens:   maxTokens,
 	}
 
@@ -185,14 +187,12 @@ type GeminiService struct {
 }
 
 func NewGeminiService() *GeminiService {
-	activeIdx := GetSetting(GlobalDB, "ACTIVE_GEMINI_KEY")
 	keyName := "GEMINI_API_KEY"
-	if activeIdx == "2" {
+	if GetSetting(GlobalDB, "ACTIVE_GEMINI_KEY") == "2" {
 		keyName = "GEMINI_API_KEY_2"
 	}
 
-	apiKey := GetSetting(GlobalDB, "ACTIVE_GEMINI_KEY") // Wait, I should use keyName here
-	apiKey = GetSetting(GlobalDB, keyName)
+	apiKey := GetSetting(GlobalDB, keyName)
 	if apiKey == "" {
 		apiKey = os.Getenv("API_KEY")
 	}
