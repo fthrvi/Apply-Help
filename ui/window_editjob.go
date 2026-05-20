@@ -3,6 +3,7 @@ package ui
 import (
 	model "32-Adarsha/model"
 	"32-Adarsha/services"
+	"context"
 	"crypto/sha1"
 	"database/sql"
 	"encoding/hex"
@@ -10,15 +11,16 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/chromedp/chromedp"
 )
 
 func renderPDFToCanvas(pdfPath string) fyne.CanvasObject {
@@ -49,11 +51,9 @@ func renderPDFToCanvas(pdfPath string) fyne.CanvasObject {
 			return
 		}
 
-		// qlmanage names the PNG after the input file's basename. Every
-		// generated PDF is "resume.pdf" or "cover.pdf" (just in a different
-		// per-company subdir), so previewing two jobs back-to-back used to
-		// collide at /tmp/resume.pdf.png. Hash the full source path and
-		// symlink it into a per-user cache dir with a unique name first.
+		// Cache previews under the user's cache dir, keyed by hash of the
+		// source path so two jobs whose PDFs share a basename
+		// (e.g. resume.pdf in different per-company subdirs) don't collide.
 		cacheRoot, err := os.UserCacheDir()
 		if err != nil {
 			cacheRoot = os.TempDir()
@@ -62,24 +62,46 @@ func renderPDFToCanvas(pdfPath string) fyne.CanvasObject {
 		_ = os.MkdirAll(previewDir, 0700)
 
 		sum := sha1.Sum([]byte(pdfPath))
-		linkBase := hex.EncodeToString(sum[:8]) + "_" + filepath.Base(pdfPath)
-		linkPath := filepath.Join(previewDir, linkBase)
-		_ = os.Remove(linkPath)
-		if err := os.Symlink(pdfPath, linkPath); err != nil {
-			// Fall back to a copy when symlinks aren't available.
-			if data, rerr := os.ReadFile(pdfPath); rerr == nil {
-				_ = os.WriteFile(linkPath, data, 0600)
-			}
+		pngPath := filepath.Join(previewDir, hex.EncodeToString(sum[:8])+".png")
+
+		// Prefer screenshotting the same-basename HTML that AutoApply wrote
+		// alongside the PDF — chromedp renders HTML reliably across
+		// platforms, while screenshotting a PDF in headless Chrome is
+		// quirky. Fall back to the PDF if the HTML is gone for any reason.
+		source := strings.TrimSuffix(pdfPath, ".pdf") + ".html"
+		if _, herr := os.Stat(source); herr != nil {
+			source = pdfPath
+		}
+		absSource, err := filepath.Abs(source)
+		if err != nil {
+			fmt.Printf("❌ Preview: abs path failed: %v\n", err)
 		}
 
-		fmt.Printf("🔨 Preview: Running qlmanage for %s\n", pdfPath)
-		cmd := exec.Command("qlmanage", "-t", "-s", "2048", "-o", previewDir, linkPath)
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("❌ Preview: qlmanage failed: %v\n", err)
-		}
+		fmt.Printf("🔨 Preview: chromedp screenshot of %s\n", absSource)
+		opts := append(chromedp.DefaultExecAllocatorOptions[:],
+			chromedp.DisableGPU,
+			chromedp.Flag("disable-javascript", true),
+			chromedp.Flag("hide-scrollbars", true),
+		)
+		allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
+		defer cancelAlloc()
+		browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+		defer cancelBrowser()
+		runCtx, cancelTimeout := context.WithTimeout(browserCtx, 20*time.Second)
+		defer cancelTimeout()
 
-		pngPath := filepath.Join(previewDir, linkBase+".png")
-		fmt.Printf("🖼️ Preview: Looking for PNG %s\n", pngPath)
+		var imgBytes []byte
+		err = chromedp.Run(runCtx,
+			chromedp.EmulateViewport(1024, 1320),
+			chromedp.Navigate("file://"+absSource),
+			chromedp.Sleep(500*time.Millisecond),
+			chromedp.CaptureScreenshot(&imgBytes),
+		)
+		if err != nil {
+			fmt.Printf("❌ Preview: chromedp screenshot failed: %v\n", err)
+		} else {
+			_ = os.WriteFile(pngPath, imgBytes, 0600)
+		}
 
 		fyne.Do(func() {
 			containerObj.Objects = nil

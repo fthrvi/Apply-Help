@@ -23,11 +23,11 @@ go build .
 
 Requires:
 
-- **Go 1.25+** (see `go.mod`).
-- **Google Chrome** installed at `/Applications/Google Chrome.app/...`
-  for PDF rendering. Cross-platform Chrome detection is on the roadmap.
-- **macOS-only** for now: PDF preview in the edit view uses `qlmanage`
-  (Quick Look). On other platforms the preview will silently degrade.
+- **Go 1.26+** (see `go.mod`).
+- **Google Chrome or Chromium** anywhere `chromedp` can find it. On macOS
+  that's `/Applications/Google Chrome.app/...`; on Linux it's `google-chrome`
+  / `chromium` on PATH; on Windows it's the standard install location.
+  Used for both PDF generation and the preview screenshot.
 
 ## Run
 

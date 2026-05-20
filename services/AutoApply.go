@@ -1,17 +1,20 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/chromedp"
 )
 
 // AutoApplyResult holds the data returned by the Go workflow.
@@ -42,9 +45,12 @@ func sanitizeFilename(name string) string {
 }
 
 func saveToDownloads(sourcePath string, company string, filename string) {
-	downloadsDir := filepath.Join(os.Getenv("HOME"), "Downloads")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
 	// Organise by Company in Downloads folder
-	targetDir := filepath.Join(downloadsDir, "AutoApply", sanitizeFilename(company))
+	targetDir := filepath.Join(home, "Downloads", "AutoApply", sanitizeFilename(company))
 	os.MkdirAll(targetDir, 0755)
 
 	targetPath := filepath.Join(targetDir, filename)
@@ -118,32 +124,56 @@ func FillTemplateString(htmlStr string, data map[string]any) string {
 	})
 }
 
+// HtmlToPdf renders htmlPath to pdfPath using a headless Chrome/Chromium
+// driven over the Chrome DevTools Protocol via chromedp. The previous
+// implementation shelled out to /Applications/Google Chrome.app/... which
+// was macOS-only; chromedp auto-detects the browser's location on macOS,
+// Linux, and Windows.
+//
+// Defense in depth: even though FillTemplateString HTML-escapes substituted
+// values, we also disable JavaScript in the rendering context so a malicious
+// or glitched LLM response that somehow encodes raw markup can't fetch
+// resources or execute scripts during rendering.
 func HtmlToPdf(htmlPath, pdfPath string) error {
-	// Use Chrome headless for HTML→PDF.
-	//   --disable-javascript: neutralizes any JS that snuck into the HTML
-	//     (the template's substituted values come from an LLM and are not
-	//     trusted; FillTemplateString escapes them, but defense in depth).
-	//   --virtual-time-budget: gives web fonts time to load.
-	//   file:// URL: explicit, avoids Chrome treating the path as something else.
-	chromePath := "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 	absHTML, err := filepath.Abs(htmlPath)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(
-		chromePath,
-		"--headless",
-		"--disable-gpu",
-		"--disable-javascript",
-		"--virtual-time-budget=2000",
-		"--print-to-pdf="+pdfPath,
-		"file://"+absHTML,
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.DisableGPU,
+		chromedp.Flag("disable-javascript", true),
+		chromedp.Flag("hide-scrollbars", true),
 	)
-	out, err := cmd.CombinedOutput()
+
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancelAlloc()
+
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	defer cancelBrowser()
+
+	runCtx, cancelTimeout := context.WithTimeout(browserCtx, 30*time.Second)
+	defer cancelTimeout()
+
+	var pdfBytes []byte
+	err = chromedp.Run(runCtx,
+		chromedp.Navigate("file://"+absHTML),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			buf, _, err := page.PrintToPDF().
+				WithPrintBackground(true).
+				Do(ctx)
+			if err != nil {
+				return err
+			}
+			pdfBytes = buf
+			return nil
+		}),
+	)
 	if err != nil {
-		return fmt.Errorf("chrome: %v: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("chromedp PrintToPDF: %w", err)
 	}
-	return nil
+
+	return os.WriteFile(pdfPath, pdfBytes, 0644)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
