@@ -87,13 +87,9 @@ func PullLatestJobs(db *sql.DB) {
 	var jobsAdded int
 	currentCompany := "Unknown"
 
-	// Fetch existing jobs to avoid duplicates
-	existingJobs, _ := services.GetAllJobs(db)
-	existingLinks := make(map[string]bool)
-	for _, job := range existingJobs {
-		existingLinks[job.Link] = true
-	}
-
+	// CreateJob now deduplicates by link at the SQL layer, so we no longer
+	// need to load every existing row up front. The loop just inserts; rows
+	// that collide come back as id=0 with no error.
 	doc.Find("tr").Each(func(i int, s *goquery.Selection) {
 		cols := s.Find("td")
 
@@ -111,11 +107,6 @@ func PullLatestJobs(db *sql.DB) {
 				return
 			}
 
-			// Prevent inserting duplicate jobs based on their Link
-			if existingLinks[link] {
-				return
-			}
-
 			j := model.Job{
 				Company: currentCompany,
 				Role:    role,
@@ -124,10 +115,10 @@ func PullLatestJobs(db *sql.DB) {
 				Source:  "Simplify",
 			}
 
-			_, err := services.CreateJob(db, j)
+			id, err := services.CreateJob(db, j)
 			if err != nil {
 				log.Printf("Failed to insert job: %v", err)
-			} else {
+			} else if id > 0 {
 				jobsAdded++
 			}
 		}

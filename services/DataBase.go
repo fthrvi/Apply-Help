@@ -125,12 +125,24 @@ func CreateJob(db *sql.DB, j model.Job) (int64, error) {
 		hasDoc = 1
 	}
 
-	query := `INSERT INTO Job (company, role, link, status, created_at, description, resume, coverLetter, question, resume_data, cover_data, source, has_document) 
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	// Dedup at insert time: skip rows whose non-empty link already exists.
+	// Empty-link rows (manual entries) are always allowed through. Returning
+	// id=0 with no error signals "deduplicated, not an error" to callers.
+	query := `
+INSERT INTO Job (company, role, link, status, created_at, description, resume, coverLetter, question, resume_data, cover_data, source, has_document)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+WHERE ? = '' OR NOT EXISTS (SELECT 1 FROM Job WHERE link = ?)`
 
-	result, err := db.Exec(query, j.Company, j.Role, j.Link, j.Status, time.Now(), j.Description, j.Resume, j.Coverletter, j.Question, j.ResumeData, j.CoverData, j.Source, hasDoc)
+	result, err := db.Exec(query,
+		j.Company, j.Role, j.Link, j.Status, time.Now(), j.Description,
+		j.Resume, j.Coverletter, j.Question, j.ResumeData, j.CoverData, j.Source, hasDoc,
+		j.Link, j.Link,
+	)
 	if err != nil {
 		return 0, err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return 0, nil
 	}
 	return result.LastInsertId()
 }
