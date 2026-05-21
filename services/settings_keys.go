@@ -16,11 +16,14 @@ const (
 	KeyExtractPrompt      = "EXTRACTION_PROMPT"
 	KeyCombinedPrompt     = "COMBINED_PROMPT"
 	KeyCombinedSchema     = "COMBINED_SCHEMA"
-	KeyResumeParsePrompt  = "RESUME_PARSE_PROMPT"
+	KeyResumeParsePrompt     = "RESUME_PARSE_PROMPT"
+	KeyTranscriptParsePrompt = "TRANSCRIPT_PARSE_PROMPT"
 	KeyResumeTemplate = "RESUME_TEMPLATE"
 	KeyCoverTemplate  = "COVER_TEMPLATE"
-	KeyUserInfo       = "USER_INFO"
-	KeyLastCommitSHA  = "LAST_COMMIT_SHA"
+	KeyUserInfo         = "USER_INFO"
+	KeyJobPreferences   = "JOB_PREFERENCES"
+	KeyLastCommitSHA    = "LAST_COMMIT_SHA"
+	KeyLastSimplifyETag = "LAST_SIMPLIFY_ETAG"
 
 	KeyGithubUsername = "GITHUB_USERNAME"
 	KeyGithubToken    = "GITHUB_TOKEN"
@@ -28,6 +31,12 @@ const (
 	KeyGmailAddress     = "GMAIL_ADDRESS"
 	KeyGmailAppPassword = "GMAIL_APP_PASSWORD"
 	KeyEmailClassifyPrompt = "EMAIL_CLASSIFY_PROMPT"
+
+	// Local LLM (Ollama-compatible) endpoint + models. Used by the
+	// autofill agent for low-latency, profile-aware form filling.
+	KeyLocalLLMEndpoint   = "LOCAL_LLM_ENDPOINT"
+	KeyLocalLLMModel      = "LOCAL_LLM_MODEL"
+	KeyLocalLLMEmbedModel = "LOCAL_LLM_EMBED_MODEL"
 )
 
 // Default model identifiers used when the corresponding setting is empty.

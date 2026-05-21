@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -52,12 +53,20 @@ func seedDefaults(db *sql.DB) {
 	// API Keys (Placeholders)
 	SaveSetting(db, KeyGeminiURL, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")
 
+	// Local LLM defaults — point at the user's home server on Tailscale
+	// and use a 7B model that fits comfortably in a 16GB VRAM GPU.
+	// Editable in Settings → API Keys → Local LLM.
+	SaveSetting(db, KeyLocalLLMEndpoint, "http://prithvi-system-product-name:11434")
+	SaveSetting(db, KeyLocalLLMModel, "qwen2.5:7b-instruct")
+	SaveSetting(db, KeyLocalLLMEmbedModel, "nomic-embed-text")
+
 	// Prompts, schemas, and HTML templates come from embedded defaults so a
 	// fresh install works without any sibling files on disk.
 	SaveSetting(db, KeyExtractPrompt, defaultExtractionPrompt)
 	SaveSetting(db, KeyCombinedPrompt, defaultCombinedPrompt)
 	SaveSetting(db, KeyCombinedSchema, defaultCombinedSchema)
 	SaveSetting(db, KeyResumeParsePrompt, defaultResumeParsePrompt)
+	SaveSetting(db, KeyTranscriptParsePrompt, defaultTranscriptParsePrompt)
 	SaveSetting(db, KeyEmailClassifyPrompt, defaultEmailClassifyPrompt)
 	SaveSetting(db, KeyResumeTemplate, defaultResumeTemplate)
 	SaveSetting(db, KeyCoverTemplate, defaultCoverTemplate)
@@ -133,6 +142,125 @@ func createTable(db *sql.DB) {
         subject TEXT
     );`
 	_, _ = db.Exec(queryScan)
+
+	// GitHubBulletCache — LLM-polished résumé bullets per repo, keyed by
+	// URL with a content hash so the cache invalidates when description
+	// or README content changes. See PolishProjectBulletsWithLLM.
+	queryBullets := `
+    CREATE TABLE IF NOT EXISTS GitHubBulletCache (
+        url TEXT PRIMARY KEY,
+        content_hash TEXT,
+        bullets TEXT,
+        updated_at DATETIME
+    );`
+	_, _ = db.Exec(queryBullets)
+
+	// JobDescriptionCache — cleaned job-page text keyed by SHA-256 of the
+	// URL. Lets re-Generate (or re-Fetch) the same job avoid both the HTTP
+	// round-trip and the StripHTML/chromedp work. 24h TTL enforced by the
+	// caller, not the schema.
+	queryDescCache := `
+    CREATE TABLE IF NOT EXISTS JobDescriptionCache (
+        url_hash TEXT PRIMARY KEY,
+        description TEXT,
+        fetched_via TEXT,
+        fetched_at DATETIME
+    );`
+	_, _ = db.Exec(queryDescCache)
+
+	// LLMResponseCache — full LLM response keyed by a hash of (model +
+	// final prompt). Re-clicking Generate with identical inputs returns
+	// instantly with zero tokens spent. Any input change (description,
+	// profile, schema, prompt template) yields a different hash.
+	queryLLMCache := `
+    CREATE TABLE IF NOT EXISTS LLMResponseCache (
+        input_hash TEXT PRIMARY KEY,
+        response TEXT,
+        cached_at DATETIME
+    );`
+	_, _ = db.Exec(queryLLMCache)
+
+	// JobEvent — timeline of status transitions per job. Used by the
+	// EditView timeline tab and the dashboard stale-application banner.
+	queryEvents := `
+    CREATE TABLE IF NOT EXISTS JobEvent (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id INTEGER,
+        event_type TEXT,
+        from_status TEXT,
+        to_status TEXT,
+        note TEXT,
+        created_at DATETIME
+    );`
+	_, _ = db.Exec(queryEvents)
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_jobevent_job_id ON JobEvent(job_id);`)
+
+	// Template / schema / prompt migration. The historical defaults had
+	// hardcoded "[YOUR FULL NAME]" / "[STREET ADDRESS]" / hardcoded
+	// company-and-school entries baked into the template, plus a schema
+	// that used fixed UNM1/MO1/PROJ1 keys. The new defaults use raw HTML
+	// section placeholders ({!- ExperienceSection -!}) populated from
+	// UserInfo arrays + LLM-tailored bullets. When we detect any of the
+	// old markers, overwrite the stored value — the user couldn't have
+	// reasonably "customized" a broken template that doesn't substitute.
+	storedResume := GetSetting(db, KeyResumeTemplate)
+	// Sentinel "font-size: 0.76rem" marks the one-page-compact CSS.
+	// Earlier sentinels stay as legacy guards for older installs.
+	if strings.Contains(storedResume, "[YOUR FULL NAME]") ||
+		strings.Contains(storedResume, "[STREET ADDRESS]") ||
+		strings.Contains(storedResume, "UNM Mentoring Institute") ||
+		strings.Contains(storedResume, "{- UNM1 -}") ||
+		!strings.Contains(storedResume, "font-size: 0.76rem") {
+		_ = SaveSetting(db, KeyResumeTemplate, defaultResumeTemplate)
+	}
+
+	storedCover := GetSetting(db, KeyCoverTemplate)
+	// Sentinel: new cover drops City_State_Zip; old one still has it.
+	if strings.Contains(storedCover, "[FIRST NAME]") ||
+		strings.Contains(storedCover, "[STREET ADDRESS]") ||
+		strings.Contains(storedCover, "[YOUR FULL NAME]") ||
+		strings.Contains(storedCover, "{- City_State_Zip -}") ||
+		!strings.Contains(storedCover, "font-size: 1.45rem") {
+		_ = SaveSetting(db, KeyCoverTemplate, defaultCoverTemplate)
+	}
+
+	storedSchema := GetSetting(db, KeyCombinedSchema)
+	schemaNeedsUpdate := strings.Contains(storedSchema, "UNM1") ||
+		strings.Contains(storedSchema, "Tec_List") ||
+		strings.Contains(storedSchema, "City_State_Zip") ||
+		!strings.Contains(storedSchema, "ExperienceBullets") ||
+		!strings.Contains(storedSchema, "RelevantProjectIndices")
+	if schemaNeedsUpdate {
+		_ = SaveSetting(db, KeyCombinedSchema, defaultCombinedSchema)
+	}
+
+	storedPrompt := GetSetting(db, KeyCombinedPrompt)
+	promptNeedsUpdate := !strings.Contains(storedPrompt, "ExperienceBullets") ||
+		!strings.Contains(storedPrompt, "RelevantProjectIndices") ||
+		!strings.Contains(storedPrompt, "filler — strip them out") ||
+		!strings.Contains(storedPrompt, "MUST FIT ON ONE US LETTER PAGE")
+	if promptNeedsUpdate {
+		_ = SaveSetting(db, KeyCombinedPrompt, defaultCombinedPrompt)
+	}
+
+	// Bust the LLM response cache when we replace prompt/schema — the
+	// stored input_hash values are tied to the old prompt format and
+	// would serve stale (old-schema) responses on cache hit.
+	if schemaNeedsUpdate || promptNeedsUpdate {
+		_, _ = db.Exec("DELETE FROM LLMResponseCache")
+	}
+
+	// Backfill Local-LLM defaults for users who upgraded from before
+	// the feature existed (seedDefaults only fires on empty Settings).
+	if GetSetting(db, KeyLocalLLMEndpoint) == "" {
+		_ = SaveSetting(db, KeyLocalLLMEndpoint, "http://prithvi-system-product-name:11434")
+	}
+	if GetSetting(db, KeyLocalLLMModel) == "" {
+		_ = SaveSetting(db, KeyLocalLLMModel, "qwen2.5:7b-instruct")
+	}
+	if GetSetting(db, KeyLocalLLMEmbedModel) == "" {
+		_ = SaveSetting(db, KeyLocalLLMEmbedModel, "nomic-embed-text")
+	}
 }
 
 func CreateJob(db *sql.DB, j model.Job) (int64, error) {
@@ -160,7 +288,13 @@ WHERE ? = '' OR NOT EXISTS (SELECT 1 FROM Job WHERE link = ?)`
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return 0, nil
 	}
-	return result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err == nil && id > 0 {
+		// Creation event — gives every job a deterministic "start" entry
+		// in its timeline.
+		_ = RecordJobEvent(db, int(id), "system", "", j.Status, "Job added")
+	}
+	return id, err
 }
 
 func UpdateJob(db *sql.DB, j model.Job) error {
@@ -169,11 +303,27 @@ func UpdateJob(db *sql.DB, j model.Job) error {
 		hasDoc = 1
 	}
 
-	query := `UPDATE Job SET company=?, role=?, link=?, status=?, description=?, resume=?, coverLetter=?, question=?, resume_data=?, cover_data=?, source=?, has_document=? 
+	// Capture pre-update status so we can detect transitions and write
+	// a JobEvent row. One extra SELECT per update is acceptable — Job
+	// table is small and writes aren't hot.
+	var oldStatus string
+	_ = db.QueryRow("SELECT status FROM Job WHERE id = ?", j.Id).Scan(&oldStatus)
+
+	query := `UPDATE Job SET company=?, role=?, link=?, status=?, description=?, resume=?, coverLetter=?, question=?, resume_data=?, cover_data=?, source=?, has_document=?
 	          WHERE id=?`
 
 	_, err := db.Exec(query, j.Company, j.Role, j.Link, j.Status, j.Description, j.Resume, j.Coverletter, j.Question, j.ResumeData, j.CoverData, j.Source, hasDoc, j.Id)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Record a transition event when status changed. The "system"
+	// initial event written by CreateJob means oldStatus will already
+	// be set for any job created through the app.
+	if oldStatus != j.Status {
+		_ = RecordJobEvent(db, j.Id, "status_change", oldStatus, j.Status, "")
+	}
+	return nil
 }
 
 func DeleteJob(db *sql.DB, id int) error {

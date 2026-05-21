@@ -1,32 +1,24 @@
 {
   "RESUME": {
-    "SUMMARY": "One-paragraph professional summary tailored to the role.",
-    "UNM1": "First bullet for the candidate's most recent experience, tailored to the role.",
-    "UNM2": "Second bullet for the most recent experience.",
-    "UNM3": "Third bullet for the most recent experience.",
-    "MO1": "First bullet for the candidate's second-most-recent experience.",
-    "MO2": "Second bullet for the second-most-recent experience.",
-    "MO3": "Third bullet for the second-most-recent experience.",
-    "PROJ1": "Name of the first relevant project.",
-    "s1": "Skill or technology tag for project 1.",
-    "s2": "Skill or technology tag for project 1.",
-    "s3": "Skill or technology tag for project 1.",
-    "P1_D": "One-sentence description of project 1's purpose and outcome.",
-    "PROJ2": "Name of the second relevant project.",
-    "s4": "Skill or technology tag for project 2.",
-    "s5": "Skill or technology tag for project 2.",
-    "s6": "Skill or technology tag for project 2.",
-    "P2_D": "One-sentence description of project 2's purpose and outcome.",
-    "C1S": "Brief description of the candidate's primary (most recent) degree or coursework.",
-    "C2S": "Brief description of the candidate's secondary degree or coursework.",
-    "Tec_List": "Comma-separated list of technologies most relevant to the role.",
+    "Summary": "2-3 sentence professional summary tailored to the role. Concise — this resume must fit one US Letter page.",
+    "ExperienceBullets": [
+      ["First bullet tailored to the role, under 25 words.", "Second bullet under 25 words.", "Optional third bullet (omit when the experience is older or less relevant)."]
+    ],
+    "EducationCoursework": [
+      "Comma-separated list of 2-4 most relevant courses from this education entry's transcript (or one-sentence focus summary if no transcript)."
+    ],
+    "RelevantProjectIndices": [0, 1],
+    "ProjectDescriptions": [
+      "One-sentence description of the FIRST selected project, tailored to the role, under 25 words.",
+      "One-sentence description of the SECOND selected project, under 25 words."
+    ],
+    "TechList": "Comma-separated list of technologies most relevant to the role.",
     "Date": ""
   },
   "COVER": {
     "Date": "",
     "Company_Name": "Name of the company being applied to.",
     "Location": "Company location (city, state) if known, else empty.",
-    "City_State_Zip": "Company city/state/zip if known, else empty.",
     "Intro": "Opening paragraph that names the role and hooks the reader.",
     "Body1": "First body paragraph: most relevant experience tied to the posting's needs.",
     "Body2": "Second body paragraph: complementary skills, projects, or motivation.",

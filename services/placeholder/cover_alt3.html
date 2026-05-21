@@ -1,0 +1,221 @@
+<!-- Design: Architectural Technical — paired cover letter, JetBrains Mono headings + Inter body, terminal-inspired markers, teal accent. -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{- FullName -} — Cover Letter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --ink: #0b0f14;
+        --body: #1f2933;
+        --muted: #62737d;
+        --rule: #d6dde2;
+        --grid: #eef2f4;
+        --accent: #0a7e8c;
+        --bg: #f4f6f7;
+        --card: #ffffff;
+      }
+
+      @page {
+        size: Letter;
+        margin: 0;
+      }
+
+      html, body {
+        background: var(--bg);
+      }
+
+      body {
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 10.5pt;
+        color: var(--body);
+        line-height: 1.6;
+        padding: 0.5in 0;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        width: 8.5in;
+        min-height: 11in;
+        margin: 0 auto;
+        background: var(--card);
+        padding: 0.8in 0.85in;
+        box-shadow: 0 1px 30px rgba(11, 15, 20, 0.08);
+      }
+
+      header.masthead {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 14pt;
+        align-items: end;
+        margin-bottom: 28pt;
+        padding-bottom: 12pt;
+        border-bottom: 2px solid var(--ink);
+      }
+
+      .name-block {
+        display: flex;
+        flex-direction: column;
+        gap: 4pt;
+      }
+
+      .name-mark {
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 500;
+        font-size: 8pt;
+        letter-spacing: 0.1em;
+        color: var(--accent);
+        text-transform: uppercase;
+      }
+
+      .name {
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 700;
+        font-size: 20pt;
+        letter-spacing: -0.01em;
+        color: var(--ink);
+        line-height: 1;
+      }
+
+      .contact-line {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 8.5pt;
+        color: var(--muted);
+        line-height: 1.5;
+        text-align: right;
+        max-width: 3in;
+      }
+
+      .contact-line a {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 500;
+      }
+
+      .meta-grid {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6pt 14pt;
+        margin-bottom: 22pt;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 9pt;
+      }
+
+      .meta-grid .label {
+        color: var(--accent);
+        font-weight: 500;
+      }
+
+      .meta-grid .value {
+        color: var(--ink);
+      }
+
+      .salutation {
+        margin-bottom: 14pt;
+        font-size: 10.5pt;
+        color: var(--ink);
+      }
+
+      .letter-body p {
+        margin-bottom: 11pt;
+        font-size: 10.25pt;
+        line-height: 1.65;
+        color: var(--body);
+      }
+
+      .closing {
+        margin-top: 22pt;
+        padding-top: 14pt;
+        border-top: 1px solid var(--rule);
+      }
+
+      .sincerely {
+        color: var(--ink);
+        margin-bottom: 18pt;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 9pt;
+      }
+
+      .sincerely::before {
+        content: "// ";
+        color: var(--accent);
+      }
+
+      .signature {
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 700;
+        font-size: 12pt;
+        color: var(--ink);
+        letter-spacing: -0.01em;
+      }
+
+      @media print {
+        body {
+          background: #fff;
+          padding: 0;
+        }
+        .page {
+          box-shadow: none;
+          padding: 0.8in 0.85in;
+          width: 100%;
+          min-height: auto;
+        }
+        * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <div class="name-block">
+          <div class="name-mark">// cover_letter</div>
+          <div class="name">{- FullName -}</div>
+        </div>
+        <div class="contact-line">{!- ContactLine -!}</div>
+      </header>
+
+      <div class="meta-grid">
+        <div class="label">date</div>
+        <div class="value">{- Date -}</div>
+        <div class="label">to</div>
+        <div class="value">{- Company_Name -}</div>
+        <div class="label">loc</div>
+        <div class="value">{- Location -}</div>
+      </div>
+
+      <p class="salutation">Dear Hiring Manager,</p>
+
+      <div class="letter-body">
+        <p>{- Intro -}</p>
+        <p>{- Body1 -}</p>
+        <p>{- Body2 -}</p>
+        <p>{- Conclusion -}</p>
+      </div>
+
+      <div class="closing">
+        <p class="sincerely">sincerely,</p>
+        <p class="signature">{- FullName -}</p>
+      </div>
+
+      <div style="display:none">{- Email -} {- Phone -} {- LinkedIn -} {- GitHub -}</div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,184 @@
+<!-- Design: Modern Minimal Sans — paired cover letter, Inter throughout, monochrome with slate accent, generous whitespace. -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{- FullName -} — Cover Letter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --ink: #0f1115;
+        --body: #2a2d33;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --accent: #334155;
+        --bg: #f7f7f5;
+        --card: #ffffff;
+      }
+
+      @page {
+        size: Letter;
+        margin: 0;
+      }
+
+      html, body {
+        background: var(--bg);
+      }
+
+      body {
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 10.5pt;
+        color: var(--body);
+        line-height: 1.6;
+        padding: 0.5in 0;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        width: 8.5in;
+        min-height: 11in;
+        margin: 0 auto;
+        background: var(--card);
+        padding: 0.85in 0.95in;
+        box-shadow: 0 1px 30px rgba(15, 17, 21, 0.08);
+      }
+
+      header.masthead {
+        margin-bottom: 32pt;
+        padding-bottom: 14pt;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .name {
+        font-family: "Inter", sans-serif;
+        font-weight: 700;
+        font-size: 22pt;
+        letter-spacing: -0.02em;
+        color: var(--ink);
+        line-height: 1;
+        margin-bottom: 8pt;
+      }
+
+      .contact-line {
+        font-size: 9pt;
+        color: var(--muted);
+      }
+
+      .contact-line a {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 500;
+      }
+
+      .date {
+        font-size: 10pt;
+        color: var(--muted);
+        margin-bottom: 18pt;
+        letter-spacing: 0.01em;
+      }
+
+      .recipient {
+        margin-bottom: 22pt;
+        line-height: 1.45;
+        font-size: 10pt;
+        color: var(--ink);
+      }
+
+      .recipient .company {
+        font-weight: 600;
+      }
+
+      .salutation {
+        margin-bottom: 14pt;
+        font-size: 10.5pt;
+        color: var(--ink);
+      }
+
+      .letter-body p {
+        margin-bottom: 11pt;
+        font-size: 10.25pt;
+        line-height: 1.6;
+        color: var(--body);
+      }
+
+      .closing {
+        margin-top: 20pt;
+      }
+
+      .closing .sincerely {
+        margin-bottom: 24pt;
+        color: var(--ink);
+      }
+
+      .signature {
+        font-family: "Inter", sans-serif;
+        font-weight: 600;
+        font-size: 11pt;
+        color: var(--ink);
+        letter-spacing: -0.01em;
+      }
+
+      @media print {
+        body {
+          background: #fff;
+          padding: 0;
+        }
+        .page {
+          box-shadow: none;
+          padding: 0.85in 0.95in;
+          width: 100%;
+          min-height: auto;
+        }
+        * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <div class="name">{- FullName -}</div>
+        <div class="contact-line">{!- ContactLine -!}</div>
+      </header>
+
+      <div class="date">{- Date -}</div>
+
+      <div class="recipient">
+        <p class="company">{- Company_Name -}</p>
+        <p>{- Location -}</p>
+      </div>
+
+      <p class="salutation">Dear Hiring Manager,</p>
+
+      <div class="letter-body">
+        <p>{- Intro -}</p>
+        <p>{- Body1 -}</p>
+        <p>{- Body2 -}</p>
+        <p>{- Conclusion -}</p>
+      </div>
+
+      <div class="closing">
+        <p class="sincerely">Sincerely,</p>
+        <p class="signature">{- FullName -}</p>
+      </div>
+
+      <div style="display:none">{- Email -} {- Phone -} {- LinkedIn -} {- GitHub -}</div>
+    </div>
+  </body>
+</html>

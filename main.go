@@ -4,7 +4,6 @@ import (
 	"32-Adarsha/services"
 	"32-Adarsha/theme"
 	"32-Adarsha/ui"
-	pull "32-Adarsha/joppull"
 
 	"fyne.io/fyne/v2/app"
 )
@@ -20,14 +19,10 @@ func main() {
 	db := services.InitDb()
 	defer db.Close()
 
-	// 2.5 Pull latest jobs in the background or foreground
-	// Let's do it in a goroutine so the UI can launch quickly, 
-	// but it'll pull and insert as needed
-	go pull.PullLatestJobs(db)
-
-	// 3. Launch UI
+	// 3. Launch UI — the SimplifyJobs scraper is fired from inside
+	//    CreateMainWindow so the window can refresh its tables the
+	//    moment new rows land in the DB.
 	myWindow := ui.CreateMainWindow(myApp, db)
-	// full screen
 	myWindow.SetFullScreen(true)
 	myWindow.ShowAndRun()
 }

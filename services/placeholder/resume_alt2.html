@@ -1,0 +1,281 @@
+<!-- Design: Editorial Classic Serif — Cormorant Garamond display + Source Serif Pro body, deep oxblood accent, strong typographic hierarchy with centered masthead. -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{- FullName -} — Resume</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Source+Serif+Pro:ital,wght@0,400;0,600;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --ink: #1c1410;
+        --body: #2d2520;
+        --muted: #7a6e63;
+        --rule: #d4c8b8;
+        --accent: #5a1a1a; /* oxblood */
+        --bg: #f5f1e8;
+        --card: #fbf8f1;
+      }
+
+      @page {
+        size: Letter;
+        margin: 0;
+      }
+
+      html, body {
+        background: var(--bg);
+      }
+
+      body {
+        font-family: "Source Serif Pro", "Times New Roman", Georgia, serif;
+        font-size: 10.5pt;
+        color: var(--body);
+        line-height: 1.5;
+        padding: 0.5in 0;
+      }
+
+      .page {
+        width: 8.5in;
+        min-height: 11in;
+        margin: 0 auto;
+        background: var(--card);
+        padding: 0.6in 0.85in 0.55in 0.85in;
+        box-shadow: 0 1px 30px rgba(28, 20, 16, 0.1);
+      }
+
+      /* MASTHEAD - centered, editorial */
+      header.masthead {
+        text-align: center;
+        margin-bottom: 16pt;
+        padding-bottom: 12pt;
+        border-bottom: 1px double var(--accent);
+      }
+
+      .name {
+        font-family: "Cormorant Garamond", "Times New Roman", serif;
+        font-weight: 600;
+        font-size: 34pt;
+        letter-spacing: 0.01em;
+        color: var(--ink);
+        line-height: 1;
+        margin-bottom: 6pt;
+      }
+
+      .name-flourish {
+        display: inline-block;
+        font-family: "Cormorant Garamond", serif;
+        font-style: italic;
+        font-weight: 500;
+        font-size: 12pt;
+        color: var(--accent);
+        margin-bottom: 8pt;
+      }
+
+      .contact-line {
+        font-size: 9.5pt;
+        color: var(--muted);
+        font-family: "Source Serif Pro", serif;
+        font-style: italic;
+      }
+
+      .contact-line a {
+        color: var(--accent);
+        text-decoration: none;
+        font-style: normal;
+      }
+
+      .contact-line a:hover {
+        text-decoration: underline;
+      }
+
+      /* SUMMARY - editorial lead paragraph */
+      .summary-block {
+        margin-bottom: 14pt;
+        padding: 0 18pt;
+        text-align: center;
+      }
+
+      .summary-block .summary {
+        font-family: "Cormorant Garamond", serif;
+        font-style: italic;
+        font-weight: 500;
+        font-size: 12pt;
+        line-height: 1.4;
+        color: var(--ink);
+      }
+
+      /* SECTIONS */
+      section {
+        margin-bottom: 12pt;
+      }
+
+      .section-title {
+        font-family: "Cormorant Garamond", serif;
+        font-weight: 600;
+        font-size: 14pt;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 8pt;
+        padding-bottom: 3pt;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .tech-list {
+        font-size: 10pt;
+        line-height: 1.55;
+        color: var(--body);
+        font-family: "Source Serif Pro", serif;
+      }
+
+      /* ENTRIES */
+      .entry {
+        margin-bottom: 9pt;
+      }
+      .entry:last-child {
+        margin-bottom: 0;
+      }
+
+      .entry-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12pt;
+        margin-bottom: 2pt;
+      }
+
+      .entry-title {
+        font-family: "Cormorant Garamond", serif;
+        font-weight: 700;
+        font-size: 12pt;
+        color: var(--ink);
+        letter-spacing: 0.005em;
+      }
+
+      .entry-title span {
+        font-family: "Source Serif Pro", serif;
+        font-style: italic;
+        font-weight: 400;
+        font-size: 10.5pt;
+        color: var(--body);
+      }
+
+      .entry-title .repo-link {
+        font-family: "Source Serif Pro", serif;
+        font-style: italic;
+        font-weight: 400;
+        font-size: 9.5pt;
+        color: var(--accent);
+        text-decoration: none;
+        margin-left: 4pt;
+      }
+
+      .entry-date {
+        font-family: "Source Serif Pro", serif;
+        font-style: italic;
+        font-weight: 400;
+        font-size: 10pt;
+        color: var(--muted);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .entry-body {
+        font-family: "Source Serif Pro", serif;
+        font-size: 10pt;
+        line-height: 1.5;
+        color: var(--body);
+      }
+
+      .entry-body ul {
+        list-style: none;
+        padding-left: 0;
+        margin-top: 2pt;
+      }
+
+      .entry-body ul li {
+        position: relative;
+        padding-left: 14pt;
+        margin-bottom: 2pt;
+      }
+
+      .entry-body ul li::before {
+        content: "\2767"; /* rotated floral heart - editorial mark */
+        position: absolute;
+        left: 0;
+        top: 0;
+        color: var(--accent);
+        font-size: 8pt;
+      }
+
+      .entry-body p {
+        margin-top: 2pt;
+      }
+
+      @media print {
+        body {
+          background: #fff;
+          padding: 0;
+        }
+        .page {
+          box-shadow: none;
+          padding: 0.55in 0.75in;
+          width: 100%;
+          min-height: auto;
+          background: var(--card);
+        }
+        * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <div class="name">{- FullName -}</div>
+        <div class="contact-line">{!- ContactLine -!}</div>
+      </header>
+
+      <div class="summary-block">
+        <p class="summary">{- Summary -}</p>
+      </div>
+
+      <section>
+        <div class="section-title">Experience</div>
+        {!- ExperienceSection -!}
+      </section>
+
+      <section>
+        <div class="section-title">Selected Projects</div>
+        {!- ProjectsSection -!}
+      </section>
+
+      <section>
+        <div class="section-title">Education</div>
+        {!- EducationSection -!}
+      </section>
+
+      <section>
+        <div class="section-title">Technologies</div>
+        <div class="tech-list">{- TechList -}</div>
+      </section>
+
+      <div style="display:none">{- Date -} {- Email -} {- Phone -} {- Location -} {- LinkedIn -} {- GitHub -}</div>
+    </div>
+  </body>
+</html>

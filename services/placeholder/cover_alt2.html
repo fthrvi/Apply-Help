@@ -1,0 +1,208 @@
+<!-- Design: Editorial Classic Serif — paired cover letter, Cormorant + Source Serif Pro, oxblood accent, centered editorial masthead with italic flourish. -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{- FullName -} — Cover Letter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Source+Serif+Pro:ital,wght@0,400;0,600;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --ink: #1c1410;
+        --body: #2d2520;
+        --muted: #7a6e63;
+        --rule: #d4c8b8;
+        --accent: #5a1a1a;
+        --bg: #f5f1e8;
+        --card: #fbf8f1;
+      }
+
+      @page {
+        size: Letter;
+        margin: 0;
+      }
+
+      html, body {
+        background: var(--bg);
+      }
+
+      body {
+        font-family: "Source Serif Pro", "Times New Roman", Georgia, serif;
+        font-size: 11pt;
+        color: var(--body);
+        line-height: 1.65;
+        padding: 0.5in 0;
+      }
+
+      .page {
+        width: 8.5in;
+        min-height: 11in;
+        margin: 0 auto;
+        background: var(--card);
+        padding: 0.9in 1in;
+        box-shadow: 0 1px 30px rgba(28, 20, 16, 0.1);
+      }
+
+      header.masthead {
+        text-align: center;
+        margin-bottom: 28pt;
+        padding-bottom: 14pt;
+        border-bottom: 1px double var(--accent);
+      }
+
+      .name {
+        font-family: "Cormorant Garamond", serif;
+        font-weight: 600;
+        font-size: 30pt;
+        color: var(--ink);
+        line-height: 1;
+        margin-bottom: 6pt;
+        letter-spacing: 0.01em;
+      }
+
+      .contact-line {
+        font-family: "Source Serif Pro", serif;
+        font-style: italic;
+        font-size: 9.5pt;
+        color: var(--muted);
+      }
+
+      .contact-line a {
+        color: var(--accent);
+        text-decoration: none;
+        font-style: normal;
+      }
+
+      .date {
+        font-family: "Source Serif Pro", serif;
+        font-style: italic;
+        font-size: 11pt;
+        color: var(--muted);
+        margin-bottom: 18pt;
+        text-align: right;
+      }
+
+      .recipient {
+        margin-bottom: 22pt;
+        line-height: 1.5;
+        font-size: 11pt;
+        color: var(--ink);
+      }
+
+      .recipient .company {
+        font-family: "Cormorant Garamond", serif;
+        font-weight: 600;
+        font-size: 13pt;
+        color: var(--ink);
+      }
+
+      .salutation {
+        margin-bottom: 14pt;
+        font-size: 11pt;
+        font-style: italic;
+        color: var(--ink);
+      }
+
+      .letter-body p {
+        margin-bottom: 11pt;
+        font-size: 11pt;
+        line-height: 1.65;
+        color: var(--body);
+        text-align: justify;
+        text-justify: inter-word;
+        hyphens: auto;
+      }
+
+      .letter-body p:first-child::first-letter {
+        font-family: "Cormorant Garamond", serif;
+        font-weight: 700;
+        font-size: 28pt;
+        float: left;
+        line-height: 0.95;
+        padding: 4pt 6pt 0 0;
+        color: var(--accent);
+      }
+
+      .closing {
+        margin-top: 22pt;
+      }
+
+      .sincerely {
+        font-style: italic;
+        font-size: 11pt;
+        color: var(--ink);
+        margin-bottom: 22pt;
+      }
+
+      .signature {
+        font-family: "Cormorant Garamond", serif;
+        font-weight: 600;
+        font-size: 16pt;
+        color: var(--accent);
+        letter-spacing: 0.01em;
+      }
+
+      @media print {
+        body {
+          background: #fff;
+          padding: 0;
+        }
+        .page {
+          box-shadow: none;
+          padding: 0.9in 1in;
+          width: 100%;
+          min-height: auto;
+          background: var(--card);
+        }
+        * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <div class="name">{- FullName -}</div>
+        <div class="contact-line">{!- ContactLine -!}</div>
+      </header>
+
+      <div class="date">{- Date -}</div>
+
+      <div class="recipient">
+        <p class="company">{- Company_Name -}</p>
+        <p>{- Location -}</p>
+      </div>
+
+      <p class="salutation">Dear Hiring Manager,</p>
+
+      <div class="letter-body">
+        <p>{- Intro -}</p>
+        <p>{- Body1 -}</p>
+        <p>{- Body2 -}</p>
+        <p>{- Conclusion -}</p>
+      </div>
+
+      <div class="closing">
+        <p class="sincerely">With sincere regards,</p>
+        <p class="signature">{- FullName -}</p>
+      </div>
+
+      <div style="display:none">{- Email -} {- Phone -} {- LinkedIn -} {- GitHub -}</div>
+    </div>
+  </body>
+</html>

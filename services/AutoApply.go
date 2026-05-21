@@ -108,6 +108,101 @@ func StripHTML(htmlStr string) string {
 	return strings.TrimSpace(reSpace.ReplaceAllString(text, " "))
 }
 
+// looksBlocked decides whether a plain-HTTP fetch returned a real job
+// page or a bot-challenge / empty SPA shell. Drives the chromedp
+// fallback in FetchAndCleanDescription.
+func looksBlocked(rawHTML, cleaned string) bool {
+	if len(cleaned) < 300 {
+		return true
+	}
+	lower := strings.ToLower(rawHTML)
+	for _, marker := range []string{
+		"cf-browser-verification",
+		"just a moment",
+		"cf-mitigated",
+		"datadome",
+		"px-captcha",
+		"checking your browser",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// FetchHTMLViaBrowser drives chromedp to render the page (executing JS,
+// waiting for content to appear) and returns the visible body text.
+// Used as a fallback when plain HTTP returns blocked / empty bodies.
+// Zero LLM cost — pure rendering work.
+func FetchHTMLViaBrowser(jobURL string) (string, error) {
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.DisableGPU,
+		chromedp.Flag("hide-scrollbars", true),
+	)
+
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancelAlloc()
+
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	defer cancelBrowser()
+
+	runCtx, cancelTimeout := context.WithTimeout(browserCtx, 45*time.Second)
+	defer cancelTimeout()
+
+	var bodyText string
+	err := chromedp.Run(runCtx,
+		chromedp.Navigate(jobURL),
+		// Give the SPA time to populate before reading text. Many ATS
+		// pages (Greenhouse, Lever, Ashby) take 1-3s to render the job
+		// description after initial load.
+		chromedp.Sleep(2500*time.Millisecond),
+		chromedp.WaitVisible("body", chromedp.ByQuery),
+		chromedp.Text("body", &bodyText, chromedp.NodeVisible, chromedp.ByQuery),
+	)
+	if err != nil {
+		return "", fmt.Errorf("chromedp fetch: %w", err)
+	}
+
+	// chromedp.Text returns visible text but may carry double spaces from
+	// CSS-driven layout. Collapse to match StripHTML's output shape.
+	reSpace := regexp.MustCompile(`\s+`)
+	return strings.TrimSpace(reSpace.ReplaceAllString(bodyText, " ")), nil
+}
+
+// FetchAndCleanDescription returns the cleaned job-description text for
+// a URL, with a 24h SQLite-backed cache. On a miss it tries plain HTTP
+// first (cheap, fast); if the response looks like a bot challenge / SPA
+// shell, it falls back to chromedp. Cache hits skip the network and
+// extraction work entirely.
+func FetchAndCleanDescription(jobURL string) (string, error) {
+	if cached := GetDescriptionCache(GlobalDB, jobURL, 24*time.Hour); cached != "" {
+		return cached, nil
+	}
+
+	var lastErr error
+	if html, err := FetchHTML(jobURL); err == nil {
+		cleaned := StripHTML(html)
+		if !looksBlocked(html, cleaned) {
+			_ = SaveDescriptionCache(GlobalDB, jobURL, cleaned, "http")
+			return cleaned, nil
+		}
+		lastErr = fmt.Errorf("plain HTTP returned blocked / empty page (%d chars)", len(cleaned))
+	} else {
+		lastErr = err
+	}
+
+	cleaned, err := FetchHTMLViaBrowser(jobURL)
+	if err != nil {
+		if lastErr != nil {
+			return "", fmt.Errorf("http: %v; browser: %w", lastErr, err)
+		}
+		return "", err
+	}
+	_ = SaveDescriptionCache(GlobalDB, jobURL, cleaned, "browser")
+	return cleaned, nil
+}
+
 // FillTemplateString substitutes {- KEY -} placeholders in htmlStr with values
 // from data. Values are HTML-escaped before insertion: the substituted content
 // comes from an LLM response, and unescaped insertion would let a malicious or
@@ -180,35 +275,57 @@ func HtmlToPdf(htmlPath, pdfPath string) error {
 // MAIN WORKFLOW
 // ═════════════════════════════════════════════════════════════════════════════
 
-// RunAutoApply handles the full sequence: Fetch (if needed) -> Extract -> Generate -> Fill -> PDF
-func RunAutoApply(jobURL string, manualDesc string, modelChoice string, logFn func(string)) (*AutoApplyResult, error) {
+// RunAutoApply handles the full sequence: Fetch (if needed) -> Extract
+// (if needed) -> Generate -> Fill -> PDF.
+//
+// Inputs:
+//   - jobURL: fetched via FetchAndCleanDescription (HTTP-first with
+//     chromedp fallback + 24h cache) when manualDesc is empty.
+//   - manualDesc: pre-supplied description; bypasses the network entirely.
+//   - knownCompany / knownRole: when both non-empty, the extraction LLM
+//     call is skipped — saves one full call per Generate, the cheapest
+//     credit optimization in the pipeline.
+func RunAutoApply(jobURL, manualDesc, knownCompany, knownRole, modelChoice string, logFn func(string)) (*AutoApplyResult, error) {
 	if logFn != nil {
 		logFn("🚀 Starting Go-native workflow...\n")
 	}
 
 	var text string
-	var err error
 
-	if manualDesc != "" {
-		if logFn != nil { logFn("📝 Using manually provided job description...\n") }
+	if strings.TrimSpace(manualDesc) != "" {
+		if logFn != nil {
+			logFn("📝 Using manually provided job description...\n")
+		}
 		text = manualDesc
 	} else {
-		// 1. Fetch HTML
-		if logFn != nil { logFn("🔍 STEP 1: Fetching job page (via HTTP)...\n") }
-		html, err := FetchHTML(jobURL)
+		if logFn != nil {
+			logFn("🔍 STEP 1: Fetching job page (HTTP, chromedp fallback)...\n")
+		}
+		fetched, err := FetchAndCleanDescription(jobURL)
 		if err != nil {
 			LogError(GlobalDB, fmt.Sprintf("Fetch failed: %v", err))
 			return nil, fmt.Errorf("fetch failed: %v", err)
 		}
-		text = StripHTML(html)
+		text = fetched
 	}
 
 	if len(text) > 12000 {
 		text = text[:12000]
 	}
 
-	// 2. Extract Info
-	if logFn != nil { logFn("🧠 STEP 2: Extracting role & company via LLM...\n") }
+	// Skip the extraction LLM call when caller already knows company +
+	// role (e.g. the EditJobView form has them filled). One LLM call
+	// saved per Generate.
+	if strings.TrimSpace(knownCompany) != "" && strings.TrimSpace(knownRole) != "" {
+		if logFn != nil {
+			logFn("⚡ Skipping extraction (company + role already known)\n")
+		}
+		return runStep3(knownCompany, knownRole, text, modelChoice, logFn)
+	}
+
+	if logFn != nil {
+		logFn("🧠 STEP 2: Extracting role & company via LLM...\n")
+	}
 	extractPrompt := GetSetting(GlobalDB, KeyExtractPrompt)
 	prompt := fmt.Sprintf(extractPrompt, text)
 	res, err := PromptAI(prompt, modelChoice)
@@ -216,10 +333,9 @@ func RunAutoApply(jobURL string, manualDesc string, modelChoice string, logFn fu
 		LogError(GlobalDB, fmt.Sprintf("Extraction failed: %v", err))
 		return nil, fmt.Errorf("extraction failed: %v", err)
 	}
-	
+
 	var info map[string]any
 	if err := json.Unmarshal([]byte(res), &info); err != nil {
-		// Attempt to extract JSON if model wrapped it in backticks
 		reJSON := regexp.MustCompile(`(?s)\{.*\}`)
 		if match := reJSON.FindString(res); match != "" {
 			json.Unmarshal([]byte(match), &info)
@@ -227,11 +343,17 @@ func RunAutoApply(jobURL string, manualDesc string, modelChoice string, logFn fu
 	}
 
 	company := "Unknown Company"
-	if v, ok := info["company_name"]; ok { company = fmt.Sprintf("%v", v) }
+	if v, ok := info["company_name"]; ok {
+		company = fmt.Sprintf("%v", v)
+	}
 	role := "Unknown Role"
-	if v, ok := info["role"]; ok { role = fmt.Sprintf("%v", v) }
+	if v, ok := info["role"]; ok {
+		role = fmt.Sprintf("%v", v)
+	}
 	description := text
-	if v, ok := info["job_description"]; ok { description = fmt.Sprintf("%v", v) }
+	if v, ok := info["job_description"]; ok {
+		description = fmt.Sprintf("%v", v)
+	}
 
 	return runStep3(company, role, description, modelChoice, logFn)
 }
@@ -278,18 +400,30 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 		LogError(GlobalDB, fmt.Sprintf("GitHub context fetch failed: %v", ghErr))
 	}
 
-	// Combined Generation
-	if logFn != nil {
-		logFn("  ✨ Generating Resume & Cover Letter in a single LLM call...\n")
-	}
+	// Combined Generation — cached by (model, full prompt). Re-Generates
+	// with identical inputs cost zero tokens. Any change to description,
+	// profile, schema, or prompt template alters the hash → cache miss.
 	combinedPromptTemplate := GetSetting(GlobalDB, KeyCombinedPrompt)
 	combinedSchema := GetSetting(GlobalDB, KeyCombinedSchema)
 	prompt := fmt.Sprintf(combinedPromptTemplate, description, userContext, combinedSchema)
 
-	res, err := PromptAI(prompt, modelChoice)
-	if err != nil {
-		LogError(GlobalDB, fmt.Sprintf("Combined generation failed: %v", err))
-		return nil, fmt.Errorf("generation failed: %v", err)
+	var res string
+	if cached := GetLLMResponseCache(GlobalDB, modelChoice, prompt); cached != "" {
+		if logFn != nil {
+			logFn("  ⚡ Reusing cached LLM response (zero tokens spent)\n")
+		}
+		res = cached
+	} else {
+		if logFn != nil {
+			logFn("  ✨ Generating Resume & Cover Letter in a single LLM call...\n")
+		}
+		var err error
+		res, err = PromptAI(prompt, modelChoice)
+		if err != nil {
+			LogError(GlobalDB, fmt.Sprintf("Combined generation failed: %v", err))
+			return nil, fmt.Errorf("generation failed: %v", err)
+		}
+		_ = SaveLLMResponseCache(GlobalDB, modelChoice, prompt, res)
 	}
 
 	var combinedJSON map[string]map[string]any
@@ -310,10 +444,60 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 		return nil, err
 	}
 
-	// Add date
+	// Date + personal info injection. Personal-info keys are always set
+	// (even to "") so the {- KEY -} placeholders substitute cleanly
+	// instead of leaking through as literal text. The contact line is
+	// pre-rendered as raw HTML so empty fields drop without leaving
+	// orphan separators.
 	today := time.Now().Format("January 02, 2006")
 	resumeJSON["Date"] = today
 	coverJSON["Date"] = today
+
+	if dbUserInfo != nil {
+		setPersonal := func(m map[string]any, k, v string) {
+			if existing, ok := m[k]; ok && existing != nil {
+				if s, isStr := existing.(string); isStr && s != "" {
+					return // LLM (or earlier pass) supplied a real value; respect it
+				}
+			}
+			m[k] = v
+		}
+		setPersonal(resumeJSON, "FullName", dbUserInfo.Name)
+		setPersonal(resumeJSON, "Email", dbUserInfo.Email)
+		setPersonal(resumeJSON, "Phone", dbUserInfo.Phone)
+		setPersonal(resumeJSON, "Location", dbUserInfo.Location)
+		setPersonal(resumeJSON, "LinkedIn", dbUserInfo.LinkedIn)
+		setPersonal(resumeJSON, "GitHub", dbUserInfo.GitHub)
+		setPersonal(coverJSON, "FullName", dbUserInfo.Name)
+		setPersonal(coverJSON, "Email", dbUserInfo.Email)
+		setPersonal(coverJSON, "Phone", dbUserInfo.Phone)
+	}
+
+	// ── Section rendering ──
+	// Pull the LLM's structured arrays — ExperienceBullets (matrix),
+	// EducationCoursework (vector), ProjectDescriptions (vector). Each
+	// position aligns with the same-index entry in UserInfo. Missing /
+	// short arrays fall back to the saved Experience.Bullets etc., so a
+	// partial LLM response still produces a usable resume.
+	expBullets := coerceStringMatrix(resumeJSON["ExperienceBullets"])
+	eduCoursework := coerceStringArray(resumeJSON["EducationCoursework"])
+	projDescs := coerceStringArray(resumeJSON["ProjectDescriptions"])
+	projIndices := coerceIntArray(resumeJSON["RelevantProjectIndices"])
+
+	var experienceHTML, educationHTML, projectsHTML, contactHTML string
+	if dbUserInfo != nil {
+		experienceHTML = RenderExperienceSection(dbUserInfo.Experience, expBullets)
+		educationHTML = RenderEducationSection(dbUserInfo.Education, eduCoursework)
+		projectsHTML = RenderProjectsSection(dbUserInfo.Projects, projIndices, projDescs)
+		contactHTML = renderContactLine(dbUserInfo)
+	}
+
+	rawSections := map[string]string{
+		"ExperienceSection": experienceHTML,
+		"EducationSection":  educationHTML,
+		"ProjectsSection":   projectsHTML,
+		"ContactLine":       contactHTML,
+	}
 
 	// Output paths
 	safeCompany := sanitizeFilename(company)
@@ -340,8 +524,15 @@ func runStep3(company, role, description, modelChoice string, logFn func(string)
 		covTemplate = defaultCoverTemplate
 	}
 
-	os.WriteFile(resumeHTML, []byte(FillTemplateString(resTemplate, resumeJSON)), 0644)
-	os.WriteFile(coverHTML, []byte(FillTemplateString(covTemplate, coverJSON)), 0644)
+	// Two-pass fill: raw HTML sections (pre-rendered, not escaped) first,
+	// then the regular {- KEY -} substitutions which are HTML-escaped.
+	resumeFilled := FillRawHTML(resTemplate, rawSections)
+	resumeFilled = FillTemplateString(resumeFilled, resumeJSON)
+	coverFilled := FillRawHTML(covTemplate, rawSections)
+	coverFilled = FillTemplateString(coverFilled, coverJSON)
+
+	os.WriteFile(resumeHTML, []byte(resumeFilled), 0644)
+	os.WriteFile(coverHTML, []byte(coverFilled), 0644)
 
 	// Convert to PDF
 	if logFn != nil { logFn("  📄 Converting to PDF (cupsfilter)...\n") }
@@ -405,8 +596,54 @@ func RegenerateFromData(company, role, resumeDataJSON, coverDataJSON string, log
 		covTemplate = defaultCoverTemplate
 	}
 
-	os.WriteFile(resumeHTML, []byte(FillTemplateString(resTemplate, resumeJSON)), 0644)
-	os.WriteFile(coverHTML, []byte(FillTemplateString(covTemplate, coverJSON)), 0644)
+	// Same two-pass fill as runStep3 — raw HTML sections rebuilt from
+	// the current UserInfo + LLM-edited arrays in resumeJSON, then the
+	// escaped {- KEY -} pass. This means the user can hand-edit the
+	// JSON content and the structural entries still come from UserInfo.
+	dbUserInfo, _ := GetUserInfo(GlobalDB)
+	expBullets := coerceStringMatrix(resumeJSON["ExperienceBullets"])
+	eduCoursework := coerceStringArray(resumeJSON["EducationCoursework"])
+	projDescs := coerceStringArray(resumeJSON["ProjectDescriptions"])
+	projIndices := coerceIntArray(resumeJSON["RelevantProjectIndices"])
+	var experienceHTML, educationHTML, projectsHTML, contactHTML string
+	if dbUserInfo != nil {
+		experienceHTML = RenderExperienceSection(dbUserInfo.Experience, expBullets)
+		educationHTML = RenderEducationSection(dbUserInfo.Education, eduCoursework)
+		projectsHTML = RenderProjectsSection(dbUserInfo.Projects, projIndices, projDescs)
+		contactHTML = renderContactLine(dbUserInfo)
+
+		setPersonal := func(m map[string]any, k, v string) {
+			if existing, ok := m[k]; ok && existing != nil {
+				if s, isStr := existing.(string); isStr && s != "" {
+					return
+				}
+			}
+			m[k] = v
+		}
+		setPersonal(resumeJSON, "FullName", dbUserInfo.Name)
+		setPersonal(resumeJSON, "Email", dbUserInfo.Email)
+		setPersonal(resumeJSON, "Phone", dbUserInfo.Phone)
+		setPersonal(resumeJSON, "Location", dbUserInfo.Location)
+		setPersonal(resumeJSON, "LinkedIn", dbUserInfo.LinkedIn)
+		setPersonal(resumeJSON, "GitHub", dbUserInfo.GitHub)
+		setPersonal(coverJSON, "FullName", dbUserInfo.Name)
+		setPersonal(coverJSON, "Email", dbUserInfo.Email)
+		setPersonal(coverJSON, "Phone", dbUserInfo.Phone)
+	}
+	rawSections := map[string]string{
+		"ExperienceSection": experienceHTML,
+		"EducationSection":  educationHTML,
+		"ProjectsSection":   projectsHTML,
+		"ContactLine":       contactHTML,
+	}
+
+	resumeFilled := FillRawHTML(resTemplate, rawSections)
+	resumeFilled = FillTemplateString(resumeFilled, resumeJSON)
+	coverFilled := FillRawHTML(covTemplate, rawSections)
+	coverFilled = FillTemplateString(coverFilled, coverJSON)
+
+	os.WriteFile(resumeHTML, []byte(resumeFilled), 0644)
+	os.WriteFile(coverHTML, []byte(coverFilled), 0644)
 
 	if err := HtmlToPdf(resumeHTML, resumePDF); err != nil {
 		LogError(GlobalDB, fmt.Sprintf("resume PDF failed: %v", err))
@@ -417,7 +654,6 @@ func RegenerateFromData(company, role, resumeDataJSON, coverDataJSON string, log
 		return nil, fmt.Errorf("cover PDF generation failed: %v", err)
 	}
 
-	// Also save to Downloads
 	saveToDownloads(resumePDF, company, "resume.pdf")
 	saveToDownloads(coverPDF, company, "cover.pdf")
 

@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/ledongthuc/pdf"
+	pdfapi "github.com/pdfcpu/pdfcpu/pkg/api"
+	pdfmodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
 // ExtractResumeText opens path and returns its plaintext content. It
@@ -20,10 +22,53 @@ import (
 // pure-Go zip+XML walk, and .txt via os.ReadFile. Any other extension is
 // rejected so an LLM doesn't get fed binary garbage.
 func ExtractResumeText(path string) (string, error) {
+	return ExtractResumeTextWithPassword(path, "")
+}
+
+// ExtractResumeTextWithPassword is the encryption-aware variant. When
+// the PDF is encrypted, pdfcpu decrypts it to a temp file using the
+// supplied password and the temp file is what gets text-extracted. An
+// empty password is fine for unencrypted PDFs. The temp file is
+// removed before return.
+//
+// Errors from this path bubble up with the underlying message so the
+// UI can detect "encrypted PDF" / "invalid password" and prompt the
+// user to enter a password.
+func ExtractResumeTextWithPassword(path, password string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".pdf":
-		return extractPDFText(path)
+		// pdfcpu validates + decrypts. If the file is already
+		// unencrypted, decrypt is a no-op and we fall through to
+		// extractPDFText on the original.
+		conf := pdfmodel.NewDefaultConfiguration()
+		if password != "" {
+			conf.UserPW = password
+			conf.OwnerPW = password
+		}
+
+		encrypted, encErr := IsPDFEncrypted(path)
+		if encErr != nil {
+			// Not fatal — proceed and let extractPDFText raise the
+			// real error.
+			return extractPDFText(path)
+		}
+		if !encrypted {
+			return extractPDFText(path)
+		}
+
+		tmp, err := os.CreateTemp("", "applyhelp-decrypt-*.pdf")
+		if err != nil {
+			return "", err
+		}
+		tmpPath := tmp.Name()
+		tmp.Close()
+		defer os.Remove(tmpPath)
+
+		if err := pdfapi.DecryptFile(path, tmpPath, conf); err != nil {
+			return "", fmt.Errorf("decrypt pdf: %w", err)
+		}
+		return extractPDFText(tmpPath)
 	case ".docx":
 		return extractDocxText(path)
 	case ".txt", ".md":
@@ -35,6 +80,24 @@ func ExtractResumeText(path string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported file type %q (expected .pdf, .docx, .txt, or .md)", ext)
 	}
+}
+
+// IsPDFEncrypted returns true when the PDF requires a password to read.
+// Used by the UI to surface a password prompt instead of failing
+// blindly. pdfcpu's Validate is the authoritative check; we treat any
+// "encrypted" string in its error as positive identification.
+func IsPDFEncrypted(path string) (bool, error) {
+	conf := pdfmodel.NewDefaultConfiguration()
+	err := pdfapi.ValidateFile(path, conf)
+	if err == nil {
+		return false, nil
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "encrypted") || strings.Contains(msg, "password") {
+		return true, nil
+	}
+	// Other validation errors aren't our concern here.
+	return false, err
 }
 
 func extractPDFText(path string) (string, error) {

@@ -21,6 +21,11 @@ type Education struct {
 	StartDate   string   `json:"start_date"`
 	EndDate     string   `json:"end_date"`
 	Coursework  []string `json:"coursework"`
+	// Transcript is an optional, free-form list of courses (one per
+	// entry). The LLM picks the 2-4 most relevant to the target role
+	// when generating EducationCoursework[i]; entries without a
+	// transcript fall back to the Coursework list.
+	Transcript []string `json:"transcript,omitempty"`
 }
 
 type Experience struct {
@@ -35,6 +40,7 @@ type Experience struct {
 
 type Project struct {
 	Name         string   `json:"name"`
+	URL          string   `json:"url,omitempty"`
 	Technologies []string `json:"technologies"`
 	Bullets      []string `json:"bullets"`
 }

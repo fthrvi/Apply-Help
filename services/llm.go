@@ -77,6 +77,11 @@ func PromptAI(prompt string, modelChoice string) (string, error) {
 		// Convert the map response to a string representation for generic use
 		bytes, _ := json.Marshal(res.Data)
 		return string(bytes), nil
+	case "local", "ollama":
+		// Local LLM (Ollama-compatible). The same KeyLocalLLM* settings
+		// drive the autofill agent — picking this provider for resume
+		// generation lets the user run end-to-end offline.
+		return LocalLLMChat("You are a helpful assistant. Reply with valid JSON when the user asks for structured output.", prompt, false)
 	default:
 		err := fmt.Errorf("unsupported model choice: %s", modelChoice)
 		LogError(GlobalDB, err.Error())

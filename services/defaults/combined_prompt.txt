@@ -3,14 +3,72 @@ specific job posting. Produce a single JSON object with exactly two top-level
 keys: "RESUME" and "COVER". Each value is an object whose fields match the
 schema provided below.
 
-Rules:
+Length budget — THE RESUME MUST FIT ON ONE US LETTER PAGE.
+  - Summary: 2-3 sentences, under 50 words total.
+  - ExperienceBullets: 2-3 bullets per role (use 2 for older / less
+    relevant roles; 3 only for the most relevant). Each bullet under
+    25 words.
+  - ProjectDescriptions: one sentence each, under 25 words.
+  - EducationCoursework: comma-separated, no prose padding.
+  - TechList: comma-separated, no prose padding.
+  If the candidate has many experiences and projects, the way to fit one
+  page is FEWER bullets per role and a shorter summary — not omitting
+  experiences. Selection still happens via order; the renderer shows
+  every Experience entry but with the bullet count you specify.
+
+Output rules:
   - Output JSON only. No prose, no markdown fences, no commentary.
   - Every field in the schema MUST be present in your output.
-  - Keep bullet/summary text concise, ATS-friendly, and grounded in the
-    candidate's experience. Do not invent employers, degrees, or projects
-    that are not in the candidate context.
-  - Mirror keywords from the job description where they are an honest fit.
-  - "Date" fields will be overwritten by the caller; you may leave them empty.
+
+Bullet quality (applies to ExperienceBullets, ProjectDescriptions,
+EducationCoursework, Summary, and the cover letter paragraphs):
+  - Each bullet describes concrete work the candidate did, named with the
+    actual technologies, tools, measurements, and outcomes from their
+    history. Bullets must stand on their own as honest descriptions of
+    what was built or accomplished.
+  - Do NOT force analogical connections to the target role. Phrases like
+    "mirroring the workflow at <company>", "analogous to <target-tech>",
+    "directly applicable to <target-domain>", "demonstrating the
+    structured X expected in <target-role>", "paralleling the Y at
+    <target-company>" are filler — strip them out. The description of
+    the work itself should speak for itself.
+  - Lead with a strong past-tense verb (Built, Designed, Implemented,
+    Engineered, Shipped, Optimized, Reduced, Architected, Investigated).
+  - Quantify when the candidate context provides numbers (latency,
+    throughput, dataset size, cost reduction, user count). Never
+    fabricate numbers.
+
+Array shapes:
+  - ExperienceBullets is an array whose length and order MUST match the
+    candidate's experience array (index 0 = most recent). Each inner
+    array has 2-3 bullets per the length budget above.
+  - EducationCoursework is an array whose length and order MUST match
+    the candidate's education array. For each education[i]:
+      * If education[i].transcript is non-empty, select 2-4 courses from
+        it that strengthen the candidate for THIS specific role. Output
+        as a comma-separated string.
+      * Otherwise, fall back to education[i].coursework joined as a
+        comma-separated string, or a one-line focus summary if neither
+        is available.
+      * Never invent courses not present in the candidate context.
+  - RelevantProjectIndices is an array of 2-3 zero-based indices into
+    the candidate's projects array. Pick the projects most directly
+    relevant to the role. If fewer than 2 are clearly relevant, choose
+    2-3 demonstrating breadth across different technologies / domains.
+  - ProjectDescriptions is an array of the same length and order as
+    RelevantProjectIndices.
+
+What NOT to output:
+  - The candidate's company names, job titles, employment dates, school
+    names, degree titles, project names, and project URLs are rendered
+    separately from the candidate context — do NOT include them in your
+    output. Focus only on the content that should change per job.
+  - Do not invent employers, degrees, projects, or courses that are not
+    in the candidate context.
+  - "Date" fields will be overwritten by the caller; you may leave them
+    empty.
+
+Mirror keywords from the job description where they are an honest fit.
 
 Job description:
 ---

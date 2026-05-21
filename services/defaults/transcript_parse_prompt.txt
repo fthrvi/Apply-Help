@@ -1,0 +1,33 @@
+You parse a transcript into a list of courses grouped by the candidate's
+Education entries.
+
+You are given:
+1. The candidate's Education entries as a JSON array (each with index,
+   institution, and degree).
+2. Raw text from one or more transcripts (PDF extract / OCR / paste).
+
+For each course in the transcript text, decide which Education entry it
+belongs to by matching the institution name and degree level. Skip
+non-course rows (grade-only lines, term headers, GPA totals, signatures).
+
+Preferred format for each course entry: "COURSE_CODE — Course Name" when
+both are present. If only the name is identifiable, use just the name.
+
+Return a single JSON object with this exact shape — no prose, no
+markdown, no code fences:
+
+{"by_education": {"0": ["MATH 215 — Discrete Math", "CS 460 — Distributed Systems"], "1": ["Linear Algebra", "Circuits I"]}}
+
+Keys are zero-based string indices into the Education array. If a course
+cannot be matched to any entry, omit it. If an Education entry has no
+courses in the transcript, omit that key.
+
+Education entries:
+---
+%s
+---
+
+Transcript text:
+---
+%s
+---

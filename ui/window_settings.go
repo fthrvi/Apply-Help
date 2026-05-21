@@ -15,13 +15,32 @@ import (
 )
 
 func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasObject {
-	// Left Sidebar
-	categories := []string{"User Profile", "API Keys", "System Prompts", "Output Schemas", "HTML Templates", "Error Logs"}
+	// Left Sidebar — icon + label per entry. Icons give the user a
+	// visual anchor when scanning; the list still routes via index so
+	// nothing else needs to change.
+	type sidebarItem struct {
+		label string
+		icon  fyne.Resource
+	}
+	items := []sidebarItem{
+		{"User Profile", theme.AccountIcon()},
+		{"API Keys", theme.VisibilityOffIcon()},
+		{"System Prompts", theme.DocumentIcon()},
+		{"Output Schemas", theme.ListIcon()},
+		{"HTML Templates", theme.ColorPaletteIcon()},
+		{"Error Logs", theme.WarningIcon()},
+	}
 	list := widget.NewList(
-		func() int { return len(categories) },
-		func() fyne.CanvasObject { return widget.NewLabel("Template") },
+		func() int { return len(items) },
+		func() fyne.CanvasObject {
+			icon := widget.NewIcon(theme.AccountIcon())
+			label := widget.NewLabel("Template")
+			return container.NewHBox(icon, label)
+		},
 		func(id widget.ListItemID, o fyne.CanvasObject) {
-			o.(*widget.Label).SetText(categories[id])
+			hbox := o.(*fyne.Container)
+			hbox.Objects[0].(*widget.Icon).SetResource(items[id].icon)
+			hbox.Objects[1].(*widget.Label).SetText(items[id].label)
 		},
 	)
 
@@ -75,6 +94,38 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 	gmailAppPassword.SetPlaceHolder("16-char app password (myaccount.google.com/apppasswords)")
 	gmailAppPassword.SetText(services.GetSetting(db, services.KeyGmailAppPassword))
 
+	localLLMEndpoint := widget.NewEntry()
+	localLLMEndpoint.SetPlaceHolder("http://prithvi-system-product-name:11434")
+	localLLMEndpoint.SetText(services.GetSetting(db, services.KeyLocalLLMEndpoint))
+
+	localLLMModel := widget.NewEntry()
+	localLLMModel.SetPlaceHolder("qwen2.5:7b-instruct")
+	localLLMModel.SetText(services.GetSetting(db, services.KeyLocalLLMModel))
+
+	localLLMEmbedModel := widget.NewEntry()
+	localLLMEmbedModel.SetPlaceHolder("nomic-embed-text")
+	localLLMEmbedModel.SetText(services.GetSetting(db, services.KeyLocalLLMEmbedModel))
+
+	localLLMStatusLabel := widget.NewLabel("(not tested)")
+	localLLMTestBtn := widget.NewButton("Test Connection", func() {
+		// Save current entries first so the ping uses what the user
+		// just typed, not the previously-saved values.
+		services.SaveSetting(db, services.KeyLocalLLMEndpoint, localLLMEndpoint.Text)
+		services.SaveSetting(db, services.KeyLocalLLMModel, localLLMModel.Text)
+		services.SaveSetting(db, services.KeyLocalLLMEmbedModel, localLLMEmbedModel.Text)
+		localLLMStatusLabel.SetText("Pinging…")
+		go func() {
+			err := services.LocalLLMPing()
+			fyne.Do(func() {
+				if err != nil {
+					localLLMStatusLabel.SetText("Failed: " + err.Error())
+				} else {
+					localLLMStatusLabel.SetText("✓ Connected. Model loaded and responsive.")
+				}
+			})
+		}()
+	})
+
 	keysSaveBtn := widget.NewButton("Save API Keys", func() {
 		services.SaveSetting(db, services.KeyGeminiAPI1, geminiKey1.Text)
 		services.SaveSetting(db, services.KeyGeminiAPI2, geminiKey2.Text)
@@ -92,6 +143,9 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 		services.SaveSetting(db, services.KeyGithubToken, githubToken.Text)
 		services.SaveSetting(db, services.KeyGmailAddress, gmailAddress.Text)
 		services.SaveSetting(db, services.KeyGmailAppPassword, gmailAppPassword.Text)
+		services.SaveSetting(db, services.KeyLocalLLMEndpoint, localLLMEndpoint.Text)
+		services.SaveSetting(db, services.KeyLocalLLMModel, localLLMModel.Text)
+		services.SaveSetting(db, services.KeyLocalLLMEmbedModel, localLLMEmbedModel.Text)
 	})
 	keysSaveBtn.Importance = widget.HighImportance
 
@@ -117,6 +171,13 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 		widget.NewLabel("Auto-update job statuses from your inbox. Requires 2-step verification on your Google account, then create an app password at myaccount.google.com/apppasswords."),
 		widget.NewLabel("Gmail Address"), gmailAddress,
 		widget.NewLabel("Gmail App Password"), gmailAppPassword,
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("Local LLM (Ollama-compatible)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel("Powers the autofill agent. Point at any Ollama endpoint on your Tailnet. Profile loaded as system prompt; per-field calls are ~100-300ms with KV-cache keepalive."),
+		widget.NewLabel("Endpoint URL"), localLLMEndpoint,
+		widget.NewLabel("Model (chat)"), localLLMModel,
+		widget.NewLabel("Model (embeddings)"), localLLMEmbedModel,
+		container.NewGridWithColumns(2, localLLMTestBtn, localLLMStatusLabel),
 		container.NewPadded(keysSaveBtn),
 	)))
 
@@ -248,6 +309,9 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 			idx := i
 			name := widget.NewEntry()
 			name.SetText(proj.Name)
+			urlEntry := widget.NewEntry()
+			urlEntry.SetText(proj.URL)
+			urlEntry.SetPlaceHolder("https://github.com/user/repo (optional)")
 			tech := widget.NewEntry()
 			tech.SetText(strings.Join(proj.Technologies, ", "))
 			bullets := widget.NewMultiLineEntry()
@@ -262,6 +326,7 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 
 			itemContent := container.NewVBox(
 				widget.NewLabel("Project Name"), name,
+				widget.NewLabel("URL / GitHub Link"), urlEntry,
 				widget.NewLabel("Technologies (comma separated)"), tech,
 				widget.NewLabel("Bullets (one per line)"), bullets,
 				container.NewPadded(removeBtn),
@@ -275,6 +340,7 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 				item.Title = s
 				projAccordion.Refresh()
 			}
+			urlEntry.OnChanged = func(s string) { ui.Projects[idx].URL = strings.TrimSpace(s) }
 			tech.OnChanged = func(s string) { ui.Projects[idx].Technologies = strings.Split(s, ", ") }
 			bullets.OnChanged = func(s string) { ui.Projects[idx].Bullets = strings.Split(s, "\n") }
 		}
@@ -293,27 +359,66 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 			return
 		}
 
-		applyImport := func(replace bool) {
+		// applyImport fetches repos, optionally runs an LLM bullet polish
+		// pass, and merges results into ui.Projects. modelChoice mirrors
+		// PromptAI values ("gemini" / "claude" / "openai"); empty string
+		// means heuristic-only.
+		applyImport := func(replace bool, modelChoice string) {
 			progress := dialog.NewCustomWithoutButtons("Fetching repos from GitHub…", widget.NewProgressBarInfinite(), win)
 			progress.Show()
 			go func() {
 				ghCtx, err := services.GitHubContextForCurrentUser()
-				fyne.Do(func() { progress.Hide() })
 				if err != nil {
-					fyne.Do(func() { dialog.ShowError(err, win) })
+					fyne.Do(func() {
+						progress.Hide()
+						dialog.ShowError(err, win)
+					})
 					return
 				}
 				if ghCtx == nil || len(ghCtx.Repos) == 0 {
 					fyne.Do(func() {
+						progress.Hide()
 						dialog.ShowInformation("No repos", "GitHub returned no repos for that username.", win)
 					})
 					return
 				}
+
 				newProjects := make([]model.Project, 0, len(ghCtx.Repos))
 				for _, r := range ghCtx.Repos {
 					newProjects = append(newProjects, services.RepoToProject(r))
 				}
+
+				// Optional LLM polish. Failures here fall through to the
+				// heuristic bullets we already produced; we surface the
+				// error in the success dialog so the user knows.
+				var polishNote string
+				if modelChoice != "" {
+					fyne.Do(func() {
+						progress.Hide()
+						progress = dialog.NewCustomWithoutButtons(
+							fmt.Sprintf("Polishing bullets with %s…", strings.Title(modelChoice)),
+							widget.NewProgressBarInfinite(), win)
+						progress.Show()
+					})
+					polished, perr := services.PolishProjectBulletsWithLLM(ghCtx, ui, modelChoice)
+					if perr != nil {
+						services.LogError(db, fmt.Sprintf("Bullet polish failed: %v", perr))
+						polishNote = "\n\nLLM polish failed; kept heuristic bullets. See Error Logs."
+					}
+					applied := 0
+					for i := range newProjects {
+						if b, ok := polished[newProjects[i].Name]; ok && len(b) > 0 {
+							newProjects[i].Bullets = b
+							applied++
+						}
+					}
+					if perr == nil && applied < len(newProjects) {
+						polishNote = fmt.Sprintf("\n\nLLM polished %d of %d projects.", applied, len(newProjects))
+					}
+				}
+
 				fyne.Do(func() {
+					progress.Hide()
 					if replace {
 						ui.Projects = newProjects
 					} else {
@@ -322,37 +427,68 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 					renderProjects()
 					_ = services.SaveUserInfo(db, ui)
 					dialog.ShowInformation("Imported",
-						fmt.Sprintf("Imported %d project(s) from GitHub.", len(newProjects)), win)
+						fmt.Sprintf("Imported %d project(s) from GitHub.%s", len(newProjects), polishNote), win)
 				})
 			}()
 		}
 
-		if len(ui.Projects) == 0 {
-			applyImport(true)
-			return
+		// Step 1 — ask which model (if any) should polish the bullets.
+		// "Skip" produces heuristic bullets only (no API key required).
+		const polishSkip = "Skip (heuristic only)"
+		polishRadio := widget.NewRadioGroup(
+			[]string{polishSkip, "Gemini", "Claude", "OpenAI"},
+			nil,
+		)
+		polishRadio.SetSelected(polishSkip)
+
+		// chooseReplace returns true=replace, false=append, after asking
+		// the user. Called only when ui.Projects already has entries.
+		chooseReplace := func(after func(replace bool)) {
+			if len(ui.Projects) == 0 {
+				after(true)
+				return
+			}
+			var chooseDialog dialog.Dialog
+			replaceBtn := widget.NewButton("Replace All", func() {
+				chooseDialog.Hide()
+				after(true)
+			})
+			replaceBtn.Importance = widget.HighImportance
+			appendBtn := widget.NewButton("Append", func() {
+				chooseDialog.Hide()
+				after(false)
+			})
+			cancelBtn := widget.NewButton("Cancel", func() {
+				chooseDialog.Hide()
+			})
+			body := container.NewVBox(
+				widget.NewLabel(fmt.Sprintf("You have %d existing project(s). Replace them with your GitHub repos, or append the imports?", len(ui.Projects))),
+				container.NewGridWithColumns(3, replaceBtn, appendBtn, cancelBtn),
+			)
+			chooseDialog = dialog.NewCustomWithoutButtons("Existing projects", body, win)
+			chooseDialog.Show()
 		}
 
-		// Three-way choice — Fyne's built-in ShowCustomConfirm is only
-		// binary, so build a small custom dialog with three buttons.
-		var chooseDialog dialog.Dialog
-		replaceBtn := widget.NewButton("Replace All", func() {
-			chooseDialog.Hide()
-			applyImport(true)
+		var polishDialog dialog.Dialog
+		continueBtn := widget.NewButton("Continue", func() {
+			polishDialog.Hide()
+			choice := ""
+			if polishRadio.Selected != polishSkip {
+				choice = strings.ToLower(polishRadio.Selected)
+			}
+			chooseReplace(func(replace bool) { applyImport(replace, choice) })
 		})
-		replaceBtn.Importance = widget.HighImportance
-		appendBtn := widget.NewButton("Append", func() {
-			chooseDialog.Hide()
-			applyImport(false)
-		})
-		cancelBtn := widget.NewButton("Cancel", func() {
-			chooseDialog.Hide()
-		})
-		body := container.NewVBox(
-			widget.NewLabel(fmt.Sprintf("You have %d existing project(s). Replace them with your GitHub repos, or append the imports?", len(ui.Projects))),
-			container.NewGridWithColumns(3, replaceBtn, appendBtn, cancelBtn),
+		continueBtn.Importance = widget.HighImportance
+		cancelPolishBtn := widget.NewButton("Cancel", func() { polishDialog.Hide() })
+		polishBody := container.NewVBox(
+			widget.NewLabel("Polish project bullets with an LLM?"),
+			widget.NewLabel("Heuristic bullets are repo description + first README line."),
+			widget.NewLabel("LLM polish rewrites them as résumé-grade XYZ statements."),
+			polishRadio,
+			container.NewGridWithColumns(2, continueBtn, cancelPolishBtn),
 		)
-		chooseDialog = dialog.NewCustomWithoutButtons("Existing projects", body, win)
-		chooseDialog.Show()
+		polishDialog = dialog.NewCustomWithoutButtons("Import from GitHub", polishBody, win)
+		polishDialog.Show()
 	})
 
 	eduAccordion := widget.NewAccordion()
@@ -367,7 +503,11 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 			degree.SetText(edu.Degree)
 			coursework := widget.NewMultiLineEntry()
 			coursework.SetText(strings.Join(edu.Coursework, "\n"))
-			coursework.SetMinRowsVisible(10)
+			coursework.SetMinRowsVisible(6)
+			transcript := widget.NewMultiLineEntry()
+			transcript.SetText(strings.Join(edu.Transcript, "\n"))
+			transcript.SetMinRowsVisible(8)
+			transcript.SetPlaceHolder("Paste your transcript here, one course per line (any format).\nLLM picks the 2-4 most relevant to each job.")
 
 			removeBtn := widget.NewButtonWithIcon("Remove This Education", theme.DeleteIcon(), func() {
 				ui.Education = append(ui.Education[:idx], ui.Education[idx+1:]...)
@@ -378,7 +518,8 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 			itemContent := container.NewVBox(
 				widget.NewLabel("Institution"), school,
 				widget.NewLabel("Degree"), degree,
-				widget.NewLabel("Coursework (one per line)"), coursework,
+				widget.NewLabel("Coursework (one per line — used as fallback when no transcript)"), coursework,
+				widget.NewLabel("Full Transcript (one course per line, optional)"), transcript,
 				container.NewPadded(removeBtn),
 			)
 
@@ -396,6 +537,17 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 				eduAccordion.Refresh()
 			}
 			coursework.OnChanged = func(s string) { ui.Education[idx].Coursework = strings.Split(s, "\n") }
+			transcript.OnChanged = func(s string) {
+				parts := strings.Split(s, "\n")
+				out := make([]string, 0, len(parts))
+				for _, p := range parts {
+					p = strings.TrimSpace(p)
+					if p != "" {
+						out = append(out, p)
+					}
+				}
+				ui.Education[idx].Transcript = out
+			}
 		}
 	}
 	renderEducation()
@@ -404,6 +556,136 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 		ui.Education = append(ui.Education, model.Education{Institution: "New Institution", Degree: "New Degree"})
 		renderEducation()
 	})
+
+	// Single transcript-import button that handles all Education entries
+	// at once. The LLM matches each course to the right entry by
+	// institution + degree.
+	importTranscriptBtn := widget.NewButtonWithIcon("Import Transcript (PDF / DOCX / TXT)", theme.UploadIcon(), func() {
+		if len(ui.Education) == 0 {
+			dialog.ShowInformation("Add Education first",
+				"Create at least one Education entry before importing a transcript — the LLM needs to know which degree each course belongs to.", win)
+			return
+		}
+		showImportTranscriptDialog(win, db, ui.Education, func(byIdx map[int][]string) {
+			for idx, courses := range byIdx {
+				if idx >= 0 && idx < len(ui.Education) {
+					ui.Education[idx].Transcript = courses
+				}
+			}
+			_ = services.SaveUserInfo(db, ui)
+			renderEducation()
+		})
+	})
+	importTranscriptBtn.Importance = widget.MediumImportance
+
+	// Job Preferences — LLM-derived filter tags. Each tag has a label,
+	// a keyword list (substring-matched against role+company on the
+	// dashboard), and an Enabled flag (false hides the chip without
+	// deleting the tag).
+	jobPrefs, _ := services.GetJobPreferences(db)
+
+	prefsAccordion := widget.NewAccordion()
+	var renderJobPrefs func()
+	renderJobPrefs = func() {
+		prefsAccordion.Items = nil
+		for i, tag := range jobPrefs.Tags {
+			idx := i
+			labelEntry := widget.NewEntry()
+			labelEntry.SetText(tag.Label)
+			keywordsEntry := widget.NewEntry()
+			keywordsEntry.SetText(strings.Join(tag.Keywords, ", "))
+			enabledCheck := widget.NewCheck("Enabled (shown as chip on dashboard)", nil)
+			enabledCheck.SetChecked(tag.Enabled)
+
+			removeBtn := widget.NewButtonWithIcon("Remove This Tag", theme.DeleteIcon(), func() {
+				jobPrefs.Tags = append(jobPrefs.Tags[:idx], jobPrefs.Tags[idx+1:]...)
+				renderJobPrefs()
+			})
+			removeBtn.Importance = widget.DangerImportance
+
+			itemContent := container.NewVBox(
+				widget.NewLabel("Label"), labelEntry,
+				widget.NewLabel("Keywords (comma separated, case-insensitive substring match against job role + company)"), keywordsEntry,
+				enabledCheck,
+				container.NewPadded(removeBtn),
+			)
+			item := widget.NewAccordionItem(tag.Label, itemContent)
+			prefsAccordion.Append(item)
+
+			labelEntry.OnChanged = func(s string) {
+				jobPrefs.Tags[idx].Label = strings.TrimSpace(strings.ToLower(s))
+				item.Title = jobPrefs.Tags[idx].Label
+				prefsAccordion.Refresh()
+			}
+			keywordsEntry.OnChanged = func(s string) {
+				parts := strings.Split(s, ",")
+				cleaned := make([]string, 0, len(parts))
+				for _, p := range parts {
+					p = strings.TrimSpace(strings.ToLower(p))
+					if p != "" {
+						cleaned = append(cleaned, p)
+					}
+				}
+				jobPrefs.Tags[idx].Keywords = cleaned
+			}
+			enabledCheck.OnChanged = func(b bool) {
+				jobPrefs.Tags[idx].Enabled = b
+			}
+		}
+	}
+	renderJobPrefs()
+
+	addTagBtn := widget.NewButtonWithIcon("Add New Tag", theme.ContentAddIcon(), func() {
+		jobPrefs.Tags = append(jobPrefs.Tags, model.JobTag{Label: "new-tag", Enabled: true})
+		renderJobPrefs()
+	})
+
+	generatePrefsBtn := widget.NewButtonWithIcon("Generate from Profile + GitHub", theme.ViewRefreshIcon(), func() {
+		modelRadio := widget.NewRadioGroup([]string{"Gemini", "Claude", "OpenAI"}, nil)
+		modelRadio.Horizontal = true
+		modelRadio.SetSelected("Gemini")
+
+		var dlg dialog.Dialog
+		generateBtn := widget.NewButton("Generate", func() {
+			modelChoice := strings.ToLower(modelRadio.Selected)
+			dlg.Hide()
+			progress := dialog.NewCustomWithoutButtons(
+				fmt.Sprintf("Generating job preferences with %s…", strings.Title(modelChoice)),
+				widget.NewProgressBarInfinite(), win)
+			progress.Show()
+			go func() {
+				ghCtx, ghErr := services.GitHubContextForCurrentUser()
+				if ghErr != nil {
+					services.LogError(db, fmt.Sprintf("GitHub context fetch for job prefs failed: %v", ghErr))
+				}
+				newPrefs, err := services.GenerateJobPreferencesWithLLM(ui, ghCtx, modelChoice)
+				fyne.Do(func() { progress.Hide() })
+				if err != nil {
+					services.LogError(db, fmt.Sprintf("Job prefs generation failed: %v", err))
+					fyne.Do(func() { dialog.ShowError(err, win) })
+					return
+				}
+				fyne.Do(func() {
+					*jobPrefs = *newPrefs
+					renderJobPrefs()
+					_ = services.SaveJobPreferences(db, jobPrefs)
+					dialog.ShowInformation("Generated",
+						fmt.Sprintf("Created %d tag(s). Edit or disable any you don't want.", len(jobPrefs.Tags)), win)
+				})
+			}()
+		})
+		generateBtn.Importance = widget.HighImportance
+		cancelGenBtn := widget.NewButton("Cancel", func() { dlg.Hide() })
+		body := container.NewVBox(
+			widget.NewLabel("LLM reads your profile (skills, experience, projects) and GitHub repos"),
+			widget.NewLabel("to suggest 5-10 job filter tags. Replaces existing tags."),
+			modelRadio,
+			container.NewGridWithColumns(2, generateBtn, cancelGenBtn),
+		)
+		dlg = dialog.NewCustomWithoutButtons("Generate Job Preferences", body, win)
+		dlg.Show()
+	})
+	generatePrefsBtn.Importance = widget.HighImportance
 
 	saveProfileBtn := widget.NewButton("Save All Profile Data", func() {
 		ui.Name = nameEntry.Text
@@ -416,6 +698,7 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 		ui.Skills.Databases = strings.Split(databasesEntry.Text, ", ")
 		ui.Awards = strings.Split(awardsEntry.Text, "\n")
 		services.SaveUserInfo(db, ui)
+		_ = services.SaveJobPreferences(db, jobPrefs)
 	})
 	saveProfileBtn.Importance = widget.HighImportance
 
@@ -443,6 +726,13 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 	})
 	importBtn.Importance = widget.HighImportance
 
+	jobPrefsView := container.NewVBox(
+		widget.NewLabelWithStyle("Job Preferences", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel("Tags filter the dashboard. A job appears when its role or company contains any keyword from at least one enabled tag's chip on the dashboard."),
+		container.NewGridWithColumns(2, generatePrefsBtn, addTagBtn),
+		prefsAccordion,
+	)
+
 	profileTabs := container.NewAppTabs(
 		container.NewTabItem("Personal Info", container.NewVScroll(container.NewPadded(personalInfo))),
 		container.NewTabItem("Experience", container.NewVScroll(container.NewPadded(container.NewVBox(expAccordion, addExpBtn)))),
@@ -450,8 +740,12 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 			projAccordion,
 			container.NewGridWithColumns(2, addProjBtn, importProjBtn),
 		)))),
-		container.NewTabItem("Education", container.NewVScroll(container.NewPadded(container.NewVBox(eduAccordion, addEduBtn)))),
+		container.NewTabItem("Education", container.NewVScroll(container.NewPadded(container.NewVBox(
+			eduAccordion,
+			container.NewGridWithColumns(2, addEduBtn, importTranscriptBtn),
+		)))),
 		container.NewTabItem("Skills & Tech", container.NewVScroll(container.NewPadded(skillsInfo))),
+		container.NewTabItem("Job Preferences", container.NewVScroll(container.NewPadded(jobPrefsView))),
 		container.NewTabItem("Awards", container.NewVScroll(container.NewPadded(awardsInfo))),
 	)
 
@@ -492,7 +786,67 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 	})
 	templateSaveBtn.Importance = widget.HighImportance
 
+	// Bundled template-style picker. Selecting a style overwrites the
+	// raw template entries below; the user can still hand-tune from
+	// there. Bypasses the migration sentinel by setting both stored
+	// templates directly.
+	styles := services.TemplateStyles()
+	styleLabels := make([]string, 0, len(styles))
+	for _, s := range styles {
+		styleLabels = append(styleLabels, s.Label)
+	}
+	styleRadio := widget.NewRadioGroup(styleLabels, nil)
+	styleRadio.Horizontal = false
+	styleDesc := widget.NewLabel("")
+	styleDesc.Wrapping = fyne.TextWrapWord
+	styleRadio.OnChanged = func(label string) {
+		for _, s := range styles {
+			if s.Label == label {
+				styleDesc.SetText(s.Description)
+				return
+			}
+		}
+	}
+
+	applyStyleBtn := widget.NewButtonWithIcon("Apply This Style", theme.ConfirmIcon(), func() {
+		var picked *services.TemplateStyle
+		for i := range styles {
+			if styles[i].Label == styleRadio.Selected {
+				picked = &styles[i]
+				break
+			}
+		}
+		if picked == nil {
+			dialog.ShowInformation("Pick a style", "Select a template style above before applying.", win)
+			return
+		}
+		dialog.ShowConfirm(
+			"Apply "+picked.Label+"?",
+			"Replaces your current Resume + Cover templates with the "+picked.Label+" preset. Any hand-edits in the raw template entries below will be lost.",
+			func(ok bool) {
+				if !ok {
+					return
+				}
+				_ = services.SaveSetting(db, services.KeyResumeTemplate, picked.Resume)
+				_ = services.SaveSetting(db, services.KeyCoverTemplate, picked.Cover)
+				resTemplateEntry.SetText(picked.Resume)
+				covTemplateEntry.SetText(picked.Cover)
+				dialog.ShowInformation("Applied", picked.Label+" is now your active template.", win)
+			}, win)
+	})
+	applyStyleBtn.Importance = widget.HighImportance
+
+	stylePicker := container.NewVBox(
+		widget.NewLabelWithStyle("Template Style", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel("Pick a bundled aesthetic. Generate a job afterward to see it rendered."),
+		styleRadio,
+		styleDesc,
+		container.NewPadded(applyStyleBtn),
+		widget.NewSeparator(),
+	)
+
 	templateTabs := container.NewAppTabs(
+		container.NewTabItem("Style Picker", container.NewVScroll(container.NewPadded(stylePicker))),
 		container.NewTabItem("Resume Template", container.NewPadded(resTemplateEntry)),
 		container.NewTabItem("Cover Template", container.NewPadded(covTemplateEntry)),
 	)

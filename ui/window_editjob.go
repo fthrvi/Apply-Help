@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/png"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -78,7 +80,7 @@ func renderPDFToCanvas(pdfPath string) fyne.CanvasObject {
 			fmt.Printf("❌ Preview: abs path failed: %v\n", err)
 		}
 
-		fmt.Printf("🔨 Preview: chromedp screenshot of %s\n", absSource)
+		fmt.Printf("🔨 Preview: chromedp full-page screenshot of %s\n", absSource)
 		opts := append(chromedp.DefaultExecAllocatorOptions[:],
 			chromedp.DisableGPU,
 			chromedp.Flag("disable-javascript", true),
@@ -88,20 +90,36 @@ func renderPDFToCanvas(pdfPath string) fyne.CanvasObject {
 		defer cancelAlloc()
 		browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
 		defer cancelBrowser()
-		runCtx, cancelTimeout := context.WithTimeout(browserCtx, 20*time.Second)
+		runCtx, cancelTimeout := context.WithTimeout(browserCtx, 30*time.Second)
 		defer cancelTimeout()
 
+		// FullScreenshot captures the entire scrollable document height,
+		// not just the visible viewport. Multi-page resumes render as one
+		// tall PNG that the Fyne scroll container can pan through.
 		var imgBytes []byte
 		err = chromedp.Run(runCtx,
-			chromedp.EmulateViewport(1024, 1320),
+			chromedp.EmulateViewport(900, 1200),
 			chromedp.Navigate("file://"+absSource),
 			chromedp.Sleep(500*time.Millisecond),
-			chromedp.CaptureScreenshot(&imgBytes),
+			chromedp.FullScreenshot(&imgBytes, 90),
 		)
 		if err != nil {
 			fmt.Printf("❌ Preview: chromedp screenshot failed: %v\n", err)
 		} else {
 			_ = os.WriteFile(pngPath, imgBytes, 0600)
+		}
+
+		// Read PNG dimensions so the canvas.Image takes its natural
+		// size inside the scroll container instead of collapsing to
+		// Fyne's default minimum.
+		var imgW, imgH int
+		if f, ferr := os.Open(pngPath); ferr == nil {
+			cfg, _, derr := image.DecodeConfig(f)
+			f.Close()
+			if derr == nil {
+				imgW = cfg.Width
+				imgH = cfg.Height
+			}
 		}
 
 		fyne.Do(func() {
@@ -110,16 +128,74 @@ func renderPDFToCanvas(pdfPath string) fyne.CanvasObject {
 				fmt.Printf("❌ Preview: PNG missing %s\n", pngPath)
 				containerObj.Add(widget.NewLabel("Preview generation failed for: " + pdfPath))
 			} else {
-				fmt.Printf("✅ Preview: Loading PNG %s\n", pngPath)
+				fmt.Printf("✅ Preview: Loading PNG %s (%dx%d)\n", pngPath, imgW, imgH)
 				img := canvas.NewImageFromFile(pngPath)
-				img.FillMode = canvas.ImageFillContain
-				containerObj.Add(img)
+				img.FillMode = canvas.ImageFillOriginal
+				if imgW > 0 && imgH > 0 {
+					img.SetMinSize(fyne.NewSize(float32(imgW), float32(imgH)))
+				}
+				// Bi-directional scroll so multi-page (tall) and oversized
+				// (wide) previews are both navigable.
+				containerObj.Add(container.NewScroll(img))
 			}
 			containerObj.Refresh()
 		})
 	}()
 
 	return containerObj
+}
+
+// renderJobTimeline shows the job's event history — newest at the top.
+// Each row: bold date · status transition (or note text) · optional
+// "X days ago" suffix. Empty timeline gets a friendly placeholder.
+func renderJobTimeline(db *sql.DB, jobID int) fyne.CanvasObject {
+	events := services.GetJobEvents(db, jobID)
+	if len(events) == 0 {
+		lbl := widget.NewLabel("No events recorded yet.\n\nEvents are created automatically when this job's status changes.")
+		lbl.Wrapping = fyne.TextWrapWord
+		return container.NewPadded(lbl)
+	}
+
+	vbox := container.NewVBox()
+	now := time.Now()
+	for _, e := range events {
+		dateStr := e.CreatedAt.Format("Mon, Jan 2, 2006 · 3:04 PM")
+		days := int(now.Sub(e.CreatedAt).Hours() / 24)
+		var ago string
+		switch {
+		case days == 0:
+			ago = "today"
+		case days == 1:
+			ago = "yesterday"
+		default:
+			ago = fmt.Sprintf("%d days ago", days)
+		}
+
+		var body string
+		switch e.EventType {
+		case "status_change":
+			from := e.FromStatus
+			if from == "" {
+				from = "(unset)"
+			}
+			body = fmt.Sprintf("Status: %s → %s", from, e.ToStatus)
+		case "system":
+			body = e.Note
+			if body == "" {
+				body = "System event"
+			}
+		default:
+			body = e.Note
+		}
+
+		dateLine := widget.NewLabelWithStyle(dateStr+"   ·   "+ago, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+		bodyLine := widget.NewLabel(body)
+		bodyLine.Wrapping = fyne.TextWrapWord
+		vbox.Add(dateLine)
+		vbox.Add(bodyLine)
+		vbox.Add(widget.NewSeparator())
+	}
+	return container.NewVScroll(container.NewPadded(vbox))
 }
 
 func renderQuestions(description string, jsonStr string) fyne.CanvasObject {
@@ -182,6 +258,19 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 	var resumeDataEntry *widget.Entry
 	var coverDataEntry *widget.Entry
 
+	// Forward-declared so the Generate / Apply-Changes handlers can
+	// refresh the preview tabs in place after producing new PDFs,
+	// instead of navigating away. The user stays on the EditView and
+	// sees the freshly-generated documents.
+	var resumeTab, coverTab, questionTab *container.TabItem
+	var tabs *container.AppTabs
+	// description is also forward-declared so the Auto-Fill button
+	// closure (defined above) can read it as job context — Go closures
+	// capture by name, but the name must exist in scope at closure
+	// creation time. Assigned further below where the rest of the
+	// form fields are wired up.
+	var description *widget.Entry
+
 	company := widget.NewEntry()
 	company.SetText(job.Company)
 
@@ -203,7 +292,7 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 		}
 	})
 
-	prefillBtn := widget.NewButtonWithIcon("Open & Pre-fill", theme.ComputerIcon(), func() {
+	prefillBtn := widget.NewButtonWithIcon("Auto-Fill (Agent)", theme.ComputerIcon(), func() {
 		userInfo, err := services.GetUserInfo(db)
 		if err != nil || userInfo == nil {
 			dialog.ShowError(fmt.Errorf("could not load user info: %v", err), win)
@@ -211,10 +300,29 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 		}
 		if userInfo.Name == "" && userInfo.Email == "" {
 			dialog.ShowInformation("Profile is empty",
-				"Fill in your name and email in Settings → User Profile before using Open & Pre-fill.", win)
+				"Fill in your name and email in Settings → User Profile before using Auto-Fill.", win)
 			return
 		}
-		if err := services.OpenAndPreFill(link.Text, userInfo); err != nil {
+
+		// Live progress dialog — the agent reports per-tick status
+		// (scanning / filling / done). Closes when the user dismisses.
+		progressLog := widget.NewLabel("Starting agent…")
+		progressLog.Wrapping = fyne.TextWrapWord
+		progressDlg := dialog.NewCustom("Auto-Fill Agent", "Close", container.NewVScroll(container.NewPadded(progressLog)), win)
+		progressDlg.Resize(fyne.NewSize(540, 320))
+		progressDlg.Show()
+
+		progress := func(msg string) {
+			fyne.Do(func() {
+				current := progressLog.Text
+				if current == "Starting agent…" {
+					progressLog.SetText(msg)
+				} else {
+					progressLog.SetText(current + "\n" + msg)
+				}
+			})
+		}
+		if err := services.RunAutofillAgent(link.Text, userInfo, description.Text, progress); err != nil {
 			dialog.ShowError(err, win)
 		}
 	})
@@ -242,9 +350,42 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 		pop.ShowAtPosition(pos.Add(fyne.NewPos(0, status.Size().Height)))
 	}
 
-	description := widget.NewMultiLineEntry()
+	description = widget.NewMultiLineEntry()
 	description.SetText(job.Description)
 	description.Wrapping = fyne.TextWrapWord
+
+	// Fetch Description: pulls the job posting via FetchAndCleanDescription
+	// (plain HTTP with 24h cache → chromedp fallback on blocked / SPA pages)
+	// and pastes the cleaned text into the Description field for review.
+	// Decouples fetching from Generate so the user can edit before
+	// spending tokens, and re-fetches the same URL are free.
+	fetchDescBtn := widget.NewButtonWithIcon("Fetch from URL", theme.SearchIcon(), nil)
+	fetchDescBtn.OnTapped = func() {
+		rawURL := strings.TrimSpace(link.Text)
+		if rawURL == "" {
+			dialog.ShowInformation("No URL", "Add a job link first.", win)
+			return
+		}
+		fetchDescBtn.Disable()
+		go func() {
+			defer fyne.Do(func() { fetchDescBtn.Enable() })
+			cleaned, err := services.FetchAndCleanDescription(rawURL)
+			if err != nil {
+				services.LogError(db, fmt.Sprintf("Fetch description failed: %v", err))
+				fyne.Do(func() { dialog.ShowError(err, win) })
+				return
+			}
+			fyne.Do(func() {
+				description.SetText(cleaned)
+				// Persist immediately so a re-open of this job doesn't
+				// need another Fetch click — the next FetchAndClean call
+				// would hit the URL cache anyway, but skipping the
+				// network round-trip and the extra click is cleaner UX.
+				job.Description = cleaned
+				_ = services.UpdateJob(db, job)
+			})
+		}()
+	}
 
 	resume := widget.NewMultiLineEntry()
 	resume.SetText(job.Resume)
@@ -288,8 +429,13 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 
 	var regenBtn *widget.Button
 	regenBtn = widget.NewButtonWithIcon("Generate/Regenerate Docs", theme.MediaReplayIcon(), func() {
-		rawURL := link.Text
-		desc := description.Text
+		rawURL := strings.TrimSpace(link.Text)
+		desc := strings.TrimSpace(description.Text)
+		// Pass the form's company / role through — when both are
+		// populated, RunAutoApply skips the extraction LLM call. One
+		// fewer round-trip per Generate.
+		knownComp := strings.TrimSpace(company.Text)
+		knownRole := strings.TrimSpace(role.Text)
 		selectedModel := modelSelect.Selected
 
 		regenBtn.Disable()
@@ -303,30 +449,10 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 				})
 			}()
 
-			var result *services.AutoApplyResult
-			var err error
-
-			if job.Status == "Pending" {
-				// Full flow: Fetch + Extract + Generate
-				fyne.Do(func() { regenStatus.SetText(fmt.Sprintf("Processing full workflow using %s…", selectedModel)) })
-				result, err = services.RunAutoApply(rawURL, desc, selectedModel, func(msg string) {
-					fyne.Do(func() { regenStatus.SetText(strings.TrimSpace(msg)) })
-				})
-			} else {
-				// Just regenerate from existing description
-				comp := company.Text
-				if comp == "" {
-					comp = "Unknown Company"
-				}
-				rl := role.Text
-				if rl == "" {
-					rl = "Unknown Role"
-				}
-				fyne.Do(func() { regenStatus.SetText(fmt.Sprintf("Regenerating docs using %s…", selectedModel)) })
-				result, err = services.RunRegenerate(comp, rl, desc, selectedModel, func(msg string) {
-					fyne.Do(func() { regenStatus.SetText(strings.TrimSpace(msg)) })
-				})
-			}
+			fyne.Do(func() { regenStatus.SetText(fmt.Sprintf("Processing with %s…", selectedModel)) })
+			result, err := services.RunAutoApply(rawURL, desc, knownComp, knownRole, selectedModel, func(msg string) {
+				fyne.Do(func() { regenStatus.SetText(strings.TrimSpace(msg)) })
+			})
 
 			if err != nil {
 				fyne.Do(func() { regenStatus.SetText(fmt.Sprintf("Error: %v", err)) })
@@ -338,7 +464,6 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 			}
 
 			fyne.Do(func() {
-				// Update form fields
 				company.SetText(result.Company)
 				role.SetText(result.Role)
 				description.SetText(result.Description)
@@ -347,7 +472,6 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 				resume.SetText(result.ResumePath)
 				coverLetter.SetText(result.CoverPath)
 
-				// Update internal job object
 				job.Company = result.Company
 				job.Role = result.Role
 				job.Description = result.Description
@@ -369,6 +493,28 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 
 				_ = services.UpdateJob(db, job)
 				regenStatus.SetText(fmt.Sprintf("✓ Successfully processed using %s!", selectedModel))
+
+				// Stay on the EditView and refresh the Resume / Cover /
+				// Q&A preview tabs in place so the user sees the new
+				// PDFs immediately. The dashboard's has_document state
+				// will be refreshed by the back-button when the user
+				// chooses to leave.
+				if resumeTab != nil {
+					resumeTab.Content = renderPDFToCanvas(job.Resume)
+				}
+				if coverTab != nil {
+					coverTab.Content = renderPDFToCanvas(job.Coverletter)
+				}
+				if questionTab != nil {
+					questionTab.Content = renderQuestions(job.Description, job.Question)
+				}
+				if tabs != nil {
+					tabs.Refresh()
+					// Auto-switch to the Resume tab so the user lands
+					// on the visible preview rather than whatever they
+					// last had open.
+					tabs.SelectIndex(0)
+				}
 			})
 		}()
 	})
@@ -398,30 +544,49 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 		return container.NewPadded(container.NewVBox(lbl, w))
 	}
 
+	// Section header: caps + slightly muted, mirrors the resume template's
+	// uppercase section dividers. Provides visual rhythm without taking
+	// much vertical space.
+	section := func(title string) fyne.CanvasObject {
+		lbl := widget.NewLabelWithStyle(strings.ToUpper(title), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+		return container.NewPadded(container.NewVBox(lbl, widget.NewSeparator()))
+	}
+
+	descLabel := widget.NewLabelWithStyle("Description", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	descHeader := container.NewBorder(nil, nil, descLabel, fetchDescBtn, nil)
+	descRow := container.NewPadded(container.NewBorder(descHeader, nil, nil, nil, description))
+
 	form := container.NewVBox(
+		section("Job Details"),
 		container.NewPadded(companyRoleBox),
 		row("Link", linkBox),
 		row("Status", status),
-		row("Description", description),
-		row("Resume", resume),
-		row("Cover Letter", coverLetter),
-		row("Question", question),
-		// Group Model Selection and Regen Button
-		row("AI Model for Regeneration", modelSelect),
+
+		section("Posting"),
+		descRow,
+
+		section("Generation"),
+		row("AI Model", modelSelect),
 		container.NewPadded(container.NewVBox(
 			regenBtn,
 			regenProgress,
 			regenStatus,
 		)),
+
+		section("Output"),
+		row("Resume", resume),
+		row("Cover Letter", coverLetter),
+		row("Q&A Notes", question),
 	)
 
 	header := container.NewBorder(nil, nil, backBtn, nil, widget.NewLabelWithStyle("Edit Job Entry", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}))
 
 	formContent := container.NewBorder(header, container.NewPadded(actionButtons), nil, nil, container.NewVScroll(container.NewPadded(form)))
 
-	resumeTab := container.NewTabItem("Resume", renderPDFToCanvas(job.Resume))
-	coverTab := container.NewTabItem("Cover Letter", renderPDFToCanvas(job.Coverletter))
-	questionTab := container.NewTabItem("Details & Q&A", renderQuestions(job.Description, job.Question))
+	resumeTab = container.NewTabItem("Resume", renderPDFToCanvas(job.Resume))
+	coverTab = container.NewTabItem("Cover Letter", renderPDFToCanvas(job.Coverletter))
+	questionTab = container.NewTabItem("Details & Q&A", renderQuestions(job.Description, job.Question))
+	timelineTab := container.NewTabItem("Timeline", renderJobTimeline(db, job.Id))
 
 	resEditor, getResJSON := buildJSONEditor(job.ResumeData)
 	covEditor, getCovJSON := buildJSONEditor(job.CoverData)
@@ -431,11 +596,24 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 		job.CoverData = getCovJSON()
 
 		result, err := services.RegenerateFromData(job.Company, job.Role, job.ResumeData, job.CoverData, nil)
-		if err == nil {
-			job.Resume = result.ResumePath
-			job.Coverletter = result.CoverPath
-			_ = services.UpdateJob(db, job)
-			onSave()
+		if err != nil {
+			dialog.ShowError(err, win)
+			return
+		}
+		job.Resume = result.ResumePath
+		job.Coverletter = result.CoverPath
+		_ = services.UpdateJob(db, job)
+		// Same stay-on-page behavior as Generate: refresh the previews
+		// in place so the user can see what their edits produced.
+		if resumeTab != nil {
+			resumeTab.Content = renderPDFToCanvas(job.Resume)
+		}
+		if coverTab != nil {
+			coverTab.Content = renderPDFToCanvas(job.Coverletter)
+		}
+		if tabs != nil {
+			tabs.Refresh()
+			tabs.SelectIndex(0)
 		}
 	})
 	updateDataBtn.Importance = widget.HighImportance
@@ -445,7 +623,7 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 		container.NewTabItem("Cover Content", covEditor),
 	)))
 
-	tabs := container.NewAppTabs(resumeTab, coverTab, contentEditTab, questionTab)
+	tabs = container.NewAppTabs(resumeTab, coverTab, contentEditTab, questionTab, timelineTab)
 
 	split := container.NewHSplit(formContent, tabs)
 	split.Offset = 0.25

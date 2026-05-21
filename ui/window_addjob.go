@@ -83,8 +83,9 @@ func ShowAddJobPopup(app fyne.App, db *sql.DB, onSave func()) {
 				})
 			}()
 
-			// Passed selectedModel and manualDesc to the service
-			result, err := services.RunAutoApply(rawURL, manualDesc, selectedModel, func(msg string) {
+			// Add Job has no pre-known company/role — let RunAutoApply
+			// extract them from the description.
+			result, err := services.RunAutoApply(rawURL, manualDesc, "", "", selectedModel, func(msg string) {
 				fyne.Do(func() {
 					statusLabel.SetText(strings.TrimSpace(msg))
 				})
