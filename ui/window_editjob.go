@@ -304,12 +304,27 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 			return
 		}
 
-		// Live progress dialog — the agent reports per-tick status
-		// (scanning / filling / done). Closes when the user dismisses.
-		progressLog := widget.NewLabel("Starting agent…")
+		// Live progress dialog — uses a multi-line entry rather than a
+		// Label so the user can select + Cmd+C the agent's reasoning
+		// log (much easier to share than screenshotting).
+		progressLog := widget.NewMultiLineEntry()
+		progressLog.SetText("Starting agent…")
 		progressLog.Wrapping = fyne.TextWrapWord
-		progressDlg := dialog.NewCustom("Auto-Fill Agent", "Close", container.NewVScroll(container.NewPadded(progressLog)), win)
-		progressDlg.Resize(fyne.NewSize(540, 320))
+		progressLog.SetMinRowsVisible(18)
+
+		copyBtn := widget.NewButtonWithIcon("Copy Log", theme.ContentCopyIcon(), func() {
+			win.Clipboard().SetContent(progressLog.Text)
+		})
+		copyBtn.Importance = widget.MediumImportance
+
+		dlgBody := container.NewBorder(
+			nil,
+			container.NewPadded(copyBtn),
+			nil, nil,
+			progressLog,
+		)
+		progressDlg := dialog.NewCustom("Auto-Fill Agent", "Close", container.NewPadded(dlgBody), win)
+		progressDlg.Resize(fyne.NewSize(640, 460))
 		progressDlg.Show()
 
 		progress := func(msg string) {
@@ -320,9 +335,12 @@ func BuildEditJobView(win fyne.Window, db *sql.DB, job model.Job, onSave func(),
 				} else {
 					progressLog.SetText(current + "\n" + msg)
 				}
+				// Move cursor to end so the latest line is visible.
+				progressLog.CursorRow = strings.Count(progressLog.Text, "\n")
+				progressLog.Refresh()
 			})
 		}
-		if err := services.RunAutofillAgent(link.Text, userInfo, description.Text, progress); err != nil {
+		if err := services.RunAutofillAgent(link.Text, userInfo, description.Text, role.Text, company.Text, job.Resume, job.Coverletter, progress); err != nil {
 			dialog.ShowError(err, win)
 		}
 	})

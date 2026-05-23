@@ -5,28 +5,31 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	cdp "github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/dom"
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
 
 // RunAutofillAgent opens a visible Chrome window at jobURL and runs
-// the three-tier autofill agent against every visible form field. The
-// browser is intentionally left open so the user reviews + clicks
+// the agentic perceive-reason-act loop powered by the local LLM.
+//
+// resumePath and coverPath are absolute paths to the candidate's
+// already-generated PDFs for this job (typically job.Resume and
+// job.Coverletter). When non-empty AND the file exists, the agent
+// auto-uploads them before the LLM loop begins, matching file inputs
+// by label ("Resume/CV" → resume.pdf, "Cover Letter" → cover.pdf).
+// Empty paths skip the upload phase — user can attach manually.
+//
+// The browser is intentionally left open so the user reviews + clicks
 // Submit themselves — we never auto-submit.
-//
-// Lifecycle:
-//   1. Build the autofill profile (with embeddings if Ollama is up)
-//   2. Open Chrome, navigate to jobURL
-//   3. Loop: scan visible fields → classify each → fill → wait → re-scan
-//      Stops when no new fields appear for one full tick or after the
-//      maxTicks safety cap.
-//   4. Returns; user takes over.
-//
-// progressFn receives short status lines for the UI ("Filled 8 fields",
-// "Looking for new fields...", etc.).
-func RunAutofillAgent(jobURL string, ui *model.UserInfo, jobDescription string, progressFn func(string)) error {
+func RunAutofillAgent(jobURL string, ui *model.UserInfo, jobDescription string, role, company string, resumePath, coverPath string, progressFn func(string)) error {
 	jobURL = strings.TrimSpace(jobURL)
 	if jobURL == "" {
 		return fmt.Errorf("no job URL")
@@ -51,20 +54,48 @@ func RunAutofillAgent(jobURL string, ui *model.UserInfo, jobDescription string, 
 		report(fmt.Sprintf("Profile ready (%d fields, regex-only — set Local LLM endpoint in Settings for smarter matching)", len(profile.Keys)))
 	}
 
-	// Spawn Chrome — visible, no automation flag, no fresh-profile
-	// flag so the user could in principle authenticate persistently
-	// across runs if Chrome reuses the same data dir. (We don't pin
-	// a dir, so it's per-spawn for now.)
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),
-		chromedp.Flag("disable-blink-features", "AutomationControlled"),
-	)
-	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
+	// Two browser modes:
+	//   1. Connect to the user's real Chrome (KeyConnectToRealBrowser=true)
+	//      → inherits cookies / fingerprint / extensions, no automation
+	//      banner, no navigator.webdriver flag. Most invisible to ATS
+	//      bot detection.
+	//   2. Spawn a fresh visible Chrome (default fallback) — clean
+	//      instance, "controlled by automated test software" banner.
+	var allocCtx context.Context
+	if strings.EqualFold(GetSetting(GlobalDB, KeyConnectToRealBrowser), "true") {
+		endpoint := strings.TrimSpace(GetSetting(GlobalDB, KeyRemoteDebugURL))
+		if endpoint == "" {
+			endpoint = "http://localhost:9222"
+		}
+		wsURL, err := discoverChromeDebugURL(endpoint)
+		if err != nil {
+			report(fmt.Sprintf("Couldn't reach Chrome at %s: %v.\nLaunch Chrome with: open -na 'Google Chrome' --args --remote-debugging-port=9222 --user-data-dir=$HOME/Library/Application\\ Support/Google/Chrome", endpoint, err))
+			return fmt.Errorf("real-browser mode: %w", err)
+		}
+		allocCtx, _ = chromedp.NewRemoteAllocator(context.Background(), wsURL)
+		report("Connected to your existing Chrome — new tab opening with your real session.")
+	} else {
+		opts := append(chromedp.DefaultExecAllocatorOptions[:],
+			chromedp.Flag("headless", false),
+			chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		)
+		allocCtx, _ = chromedp.NewExecAllocator(context.Background(), opts...)
+	}
 	browserCtx, _ := chromedp.NewContext(allocCtx)
 
+	// Auto-accept native JavaScript dialogs (alert / confirm / prompt).
+	// These block the page until dismissed and would freeze the agent
+	// otherwise. Most are safe to accept — they're "Are you sure you
+	// want to leave?" style nags. The user still sees them flash.
+	chromedp.ListenTarget(browserCtx, func(ev interface{}) {
+		if _, ok := ev.(*page.EventJavascriptDialogOpening); ok {
+			go func() {
+				_ = chromedp.Run(browserCtx, page.HandleJavaScriptDialog(true))
+			}()
+		}
+	})
+
 	go func() {
-		// Navigate + give the page time to render the initial form. SPA
-		// frameworks need a beat.
 		if err := chromedp.Run(browserCtx,
 			chromedp.Navigate(jobURL),
 			chromedp.Sleep(2500*time.Millisecond),
@@ -74,57 +105,20 @@ func RunAutofillAgent(jobURL string, ui *model.UserInfo, jobDescription string, 
 			return
 		}
 
-		// Tick loop: scan → classify → fill → wait.
-		filledSoFar := map[string]bool{}
-		stableTicks := 0
-		const maxTicks = 20
-		const tickInterval = 1200 * time.Millisecond
-
-		for tick := 0; tick < maxTicks; tick++ {
-			report(fmt.Sprintf("Tick %d: scanning fields…", tick+1))
-			var rawJSON string
-			if err := chromedp.Run(browserCtx, chromedp.Evaluate(scanFieldsJS, &rawJSON)); err != nil {
-				report(fmt.Sprintf("Scan error: %v", err))
-				return
-			}
-			var fields []FieldSignature
-			if err := json.Unmarshal([]byte(rawJSON), &fields); err != nil {
-				report(fmt.Sprintf("Parse error: %v (raw=%.120s)", err, rawJSON))
-				return
-			}
-
-			newlyFilled := 0
-			for _, f := range fields {
-				key := f.ID + "|" + f.Name
-				if filledSoFar[key] {
-					continue
-				}
-				fill := ClassifyField(f, profile, jobDescription)
-				if fill.Source == "skip" || fill.Value == "" {
-					continue
-				}
-				if err := applyFill(browserCtx, f, fill); err != nil {
-					LogError(GlobalDB, fmt.Sprintf("autofill apply %q: %v", f.Label, err))
-					continue
-				}
-				filledSoFar[key] = true
-				newlyFilled++
-			}
-
-			if newlyFilled > 0 {
-				report(fmt.Sprintf("Filled %d field(s) this tick (total %d)", newlyFilled, len(filledSoFar)))
-				stableTicks = 0
-			} else {
-				stableTicks++
-			}
-			// Two consecutive idle ticks → form is stable, we're done.
-			if stableTicks >= 2 {
-				break
-			}
-			time.Sleep(tickInterval)
+		// File upload phase — runs once before the LLM loop. We do this
+		// deterministically (label-match + chromedp.SetUploadFiles)
+		// because (a) browsers won't let JS set filenames at all and
+		// (b) the LLM doesn't need to spend turns deciding where the
+		// resume goes when the label tells us unambiguously.
+		if resumePath != "" || coverPath != "" {
+			runAutoUploadPhase(browserCtx, resumePath, coverPath, report)
 		}
 
-		report(fmt.Sprintf("✓ Done — filled %d field(s). Review and click Submit yourself.", len(filledSoFar)))
+		// Hand off to the LLM-driven loop. When the local LLM endpoint
+		// isn't configured, runAgenticLoop reports the missing config
+		// and returns immediately — the user can still use the form
+		// manually in the open browser.
+		runAgenticLoop(browserCtx, profile, jobDescription, role, company, report)
 	}()
 	return nil
 }
@@ -255,9 +249,40 @@ const applyFillJS = `(function() {
   } else if (type === 'checkbox' || type === 'radio') {
     var truthy = (val === true || val === 1 || /^(true|yes|y|1|on)$/i.test(String(val)));
     el.checked = truthy;
+  } else if (type === 'file') {
+    return false;
   } else {
-    el.focus();
-    el.value = val;
+    // Only INPUT and TEXTAREA accept a fill. Calling the native value
+    // setter on anything else (<a>, <div>, custom elements) throws
+    // TypeError: Illegal invocation. The agent shouldn't ask to fill
+    // non-form elements but defensive code matters.
+    var t = (el.tagName || '').toUpperCase();
+    if (t !== 'INPUT' && t !== 'TEXTAREA') {
+      return false;
+    }
+    try {
+      el.focus();
+    } catch (e) { /* ignore — some custom inputs reject focus */ }
+    // React (and other controlled-input frameworks) monkey-patch the
+    // value setter on HTMLInputElement.prototype. Setting el.value
+    // directly is silently swallowed by React's reconciler — the DOM
+    // input visually updates but React's state stays empty, so on
+    // re-render the value flips back. Workaround: get the *native*
+    // setter via Object.getOwnPropertyDescriptor and call it directly,
+    // then dispatch input so React picks up the change. Wrapped in
+    // try/catch because custom elements with their own descriptors
+    // sometimes still throw Illegal invocation.
+    try {
+      var proto = t === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+      var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+      if (desc && desc.set) {
+        desc.set.call(el, val);
+      } else {
+        el.value = val;
+      }
+    } catch (e) {
+      try { el.value = val; } catch (e2) { return false; }
+    }
   }
   fire(el, 'input');
   fire(el, 'change');
@@ -265,10 +290,180 @@ const applyFillJS = `(function() {
   return true;
 })()`
 
+// uploadCandidate is one file input we want to drive. The "kind" is
+// derived from nearby label text — resume / cover / other.
+type uploadCandidate struct {
+	Index   int    `json:"idx"`
+	Kind    string `json:"kind"`  // resume | cover | other
+	Label   string `json:"label"` // for logging
+	Section string `json:"section"`
+}
+
+// runAutoUploadPhase finds every <input type="file"> on the page,
+// classifies it by nearby label/section heading, and uses the Chrome
+// DevTools Protocol to set the file directly. Works on hidden inputs
+// (which Greenhouse / Lever / Ashby all use behind their custom
+// upload UI). resumePath and coverPath may be empty — skip those.
+func runAutoUploadPhase(ctx context.Context, resumePath, coverPath string, report func(string)) {
+	// Verify files actually exist; report once if they don't.
+	resumeOK := resumePath != "" && fileExists(resumePath)
+	coverOK := coverPath != "" && fileExists(coverPath)
+	if !resumeOK && !coverOK {
+		report("No generated PDFs to upload (resume/cover not produced yet).")
+		return
+	}
+
+	var rawJSON string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(findFileInputsJS, &rawJSON)); err != nil {
+		report(fmt.Sprintf("Couldn't scan file inputs: %v", err))
+		return
+	}
+	var cands []uploadCandidate
+	if err := json.Unmarshal([]byte(rawJSON), &cands); err != nil {
+		return
+	}
+
+	uploaded := 0
+	for _, c := range cands {
+		var path string
+		switch c.Kind {
+		case "resume":
+			if !resumeOK {
+				continue
+			}
+			path = resumePath
+		case "cover":
+			if !coverOK {
+				continue
+			}
+			path = coverPath
+		default:
+			// "other" (portfolio, transcripts, additional docs) — the
+			// agent doesn't auto-fill these; user handles manually.
+			continue
+		}
+
+		sel := fmt.Sprintf(`input[type="file"][data-aplhelp-upload="%s-%d"]`, c.Kind, c.Index)
+		var nodes []*cdp.Node
+		if err := chromedp.Run(ctx, chromedp.Nodes(sel, &nodes, chromedp.ByQuery)); err != nil || len(nodes) == 0 {
+			continue
+		}
+		if err := chromedp.Run(ctx, dom.SetFileInputFiles([]string{path}).WithNodeID(nodes[0].NodeID)); err != nil {
+			report(fmt.Sprintf("Upload to %s input failed: %v", c.Kind, err))
+			continue
+		}
+		uploaded++
+		label := c.Label
+		if label == "" {
+			label = c.Section
+		}
+		report(fmt.Sprintf("Uploaded %s.pdf → %s", c.Kind, truncate(label, 50)))
+	}
+
+	if uploaded == 0 {
+		report("No matching resume/cover file inputs on this page (might appear on a later step).")
+	}
+}
+
+func fileExists(p string) bool {
+	if _, err := os.Stat(p); err == nil {
+		return true
+	}
+	return false
+}
+
+// findFileInputsJS labels every <input type="file"> with a
+// data-aplhelp-upload attribute encoding its kind + index, so Go can
+// re-select them via CSS. Classification is based on the input's
+// label (label-for, parent label, aria-label) and the nearest section
+// heading text — "resume" / "cv" / "curriculum" → resume; "cover
+// letter" → cover; anything else → other (we don't auto-upload).
+const findFileInputsJS = `(function() {
+  function labelOf(el) {
+    if (el.id) {
+      var lbl = document.querySelector('label[for="' + el.id.replace(/"/g, '\\"') + '"]');
+      if (lbl) {
+        var t = (lbl.innerText || lbl.textContent || '').trim();
+        if (t) return t;
+      }
+    }
+    var wrap = el.closest('label');
+    if (wrap) {
+      var c = wrap.cloneNode(true);
+      c.querySelectorAll('input, select, textarea, button').forEach(function(n) { n.remove(); });
+      var t = (c.innerText || c.textContent || '').trim();
+      if (t) return t;
+    }
+    var aria = el.getAttribute('aria-label') || el.getAttribute('placeholder');
+    return aria ? aria.trim() : '';
+  }
+  function sectionHeadingOf(el) {
+    // Walk up looking for the nearest preceding heading or labeled section.
+    var cur = el;
+    for (var i = 0; i < 12 && cur && cur !== document.body; i++) {
+      cur = cur.parentElement;
+      if (!cur) break;
+      // Look for a heading element directly inside this container, before our input.
+      var headings = cur.querySelectorAll('h1, h2, h3, h4, h5, h6, [class*="label"], [class*="heading"], [class*="title"]');
+      for (var j = 0; j < headings.length; j++) {
+        var h = headings[j];
+        // Only count headings that appear before our element in document order.
+        if (el.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_PRECEDING) {
+          var t = (h.innerText || h.textContent || '').trim();
+          if (t && t.length < 80) return t;
+        }
+      }
+    }
+    return '';
+  }
+
+  var out = [];
+  document.querySelectorAll('input[type="file"]').forEach(function(el, idx) {
+    var label = labelOf(el);
+    var section = sectionHeadingOf(el);
+    var hay = (label + ' ' + section).toLowerCase();
+    var kind = 'other';
+    if (/resume|cv\b|curriculum/.test(hay)) kind = 'resume';
+    else if (/cover.?letter/.test(hay)) kind = 'cover';
+    el.setAttribute('data-aplhelp-upload', kind + '-' + idx);
+    out.push({idx: idx, kind: kind, label: label, section: section});
+  });
+  return JSON.stringify(out);
+})()`
+
 // OpenAndPreFill — legacy entrypoint kept for any callers that still
-// use it. Now dispatches to the agent.
+// use it. Now dispatches to the agent with empty job context.
 func OpenAndPreFill(jobURL string, ui *model.UserInfo) error {
-	return RunAutofillAgent(jobURL, ui, "", nil)
+	return RunAutofillAgent(jobURL, ui, "", "", "", "", "", nil)
+}
+
+// discoverChromeDebugURL queries Chrome's remote-debug endpoint and
+// returns the browser-level WebSocket URL chromedp needs. Chrome must
+// have been launched with --remote-debugging-port=N; the standard
+// endpoint is http://localhost:9222. Errors clearly if Chrome isn't
+// running with the flag set.
+func discoverChromeDebugURL(httpEndpoint string) (string, error) {
+	httpEndpoint = strings.TrimRight(httpEndpoint, "/")
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(httpEndpoint + "/json/version")
+	if err != nil {
+		return "", fmt.Errorf("connect %s: %w", httpEndpoint, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("HTTP %d from %s/json/version", resp.StatusCode, httpEndpoint)
+	}
+	var data struct {
+		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
+		return "", fmt.Errorf("parse /json/version: %w", err)
+	}
+	if data.WebSocketDebuggerURL == "" {
+		return "", fmt.Errorf("/json/version returned no webSocketDebuggerUrl — is Chrome running with --remote-debugging-port?")
+	}
+	return data.WebSocketDebuggerURL, nil
 }
 
 func firstName(full string) string {

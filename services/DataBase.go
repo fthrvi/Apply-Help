@@ -261,6 +261,9 @@ func createTable(db *sql.DB) {
 	if GetSetting(db, KeyLocalLLMEmbedModel) == "" {
 		_ = SaveSetting(db, KeyLocalLLMEmbedModel, "nomic-embed-text")
 	}
+	if GetSetting(db, KeyRemoteDebugURL) == "" {
+		_ = SaveSetting(db, KeyRemoteDebugURL, "http://localhost:9222")
+	}
 }
 
 func CreateJob(db *sql.DB, j model.Job) (int64, error) {

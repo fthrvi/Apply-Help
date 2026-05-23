@@ -37,6 +37,24 @@ const (
 	KeyLocalLLMEndpoint   = "LOCAL_LLM_ENDPOINT"
 	KeyLocalLLMModel      = "LOCAL_LLM_MODEL"
 	KeyLocalLLMEmbedModel = "LOCAL_LLM_EMBED_MODEL"
+
+	// Autofill agent — auto-submit toggle. Default off. When "true"
+	// the agent clicks Submit after filling. Off → user reviews + clicks.
+	KeyAutofillAutoSubmit = "AUTOFILL_AUTO_SUBMIT"
+
+	// Connect-to-real-Chrome mode. When "true" the agent attaches to
+	// the user's already-running Chrome (launched with
+	// --remote-debugging-port) instead of spawning a clean instance.
+	// Inherits cookies, fingerprint, history, extensions — invisible
+	// to most bot detection because the browser genuinely IS the
+	// user's normal browser.
+	KeyConnectToRealBrowser = "CONNECT_REAL_BROWSER"
+	KeyRemoteDebugURL       = "REMOTE_DEBUG_URL"
+
+	// Human-like input: smooth mouse movement before clicks +
+	// realistic per-character typing delays. Slower than instant fills
+	// but harder for behavioral heuristics to flag.
+	KeyHumanLikeInput = "HUMANLIKE_INPUT"
 )
 
 // Default model identifiers used when the corresponding setting is empty.

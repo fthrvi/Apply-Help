@@ -67,8 +67,18 @@ func BuildAutofillProfile(ui *model.UserInfo) *AutofillProfile {
 	add("phone number", ui.Phone)
 	add("mobile phone", ui.Phone)
 	add("linkedin profile url", ui.LinkedIn)
-	add("github profile url", ui.GitHub)
-	add("portfolio website url", ui.GitHub) // best-effort fallback
+	// GitHub URL: prefer UserInfo.GitHub if populated. When it's empty,
+	// synthesize from KeyGithubUsername (same fallback used by the
+	// resume's contact line). Saves the user from entering the handle
+	// in two places.
+	githubURL := strings.TrimSpace(ui.GitHub)
+	if githubURL == "" {
+		if user := strings.TrimSpace(GetSetting(GlobalDB, KeyGithubUsername)); user != "" {
+			githubURL = "https://github.com/" + user
+		}
+	}
+	add("github profile url", githubURL)
+	add("portfolio website url", githubURL) // GitHub doubles as portfolio URL
 	add("current city or location", ui.Location)
 	add("address", ui.Location)
 	add("city", ui.Location)

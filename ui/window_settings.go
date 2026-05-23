@@ -106,6 +106,42 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 	localLLMEmbedModel.SetPlaceHolder("nomic-embed-text")
 	localLLMEmbedModel.SetText(services.GetSetting(db, services.KeyLocalLLMEmbedModel))
 
+	autoSubmitCheck := widget.NewCheck("Auto-submit application after fill (advanced — may trigger ATS bot detection)", func(checked bool) {
+		v := "false"
+		if checked {
+			v = "true"
+		}
+		services.SaveSetting(db, services.KeyAutofillAutoSubmit, v)
+	})
+	autoSubmitCheck.SetChecked(strings.EqualFold(services.GetSetting(db, services.KeyAutofillAutoSubmit), "true"))
+
+	connectChromeCheck := widget.NewCheck("Use my real Chrome (advanced — most invisible to bot detection)", func(checked bool) {
+		v := "false"
+		if checked {
+			v = "true"
+		}
+		services.SaveSetting(db, services.KeyConnectToRealBrowser, v)
+	})
+	connectChromeCheck.SetChecked(strings.EqualFold(services.GetSetting(db, services.KeyConnectToRealBrowser), "true"))
+
+	remoteDebugURL := widget.NewEntry()
+	remoteDebugURL.SetPlaceHolder("http://localhost:9222")
+	remoteDebugURL.SetText(services.GetSetting(db, services.KeyRemoteDebugURL))
+
+	humanLikeCheck := widget.NewCheck("Human-like input (curved mouse movement + click delays)", func(checked bool) {
+		v := "false"
+		if checked {
+			v = "true"
+		}
+		services.SaveSetting(db, services.KeyHumanLikeInput, v)
+	})
+	humanLikeCheck.SetChecked(strings.EqualFold(services.GetSetting(db, services.KeyHumanLikeInput), "true"))
+
+	chromeLaunchCmd := `pkill -x "Google Chrome"; open -na "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir="$HOME/Library/Application Support/Google/Chrome"`
+	copyLaunchBtn := widget.NewButtonWithIcon("Copy Chrome-launch command", theme.ContentCopyIcon(), func() {
+		win.Clipboard().SetContent(chromeLaunchCmd)
+	})
+
 	localLLMStatusLabel := widget.NewLabel("(not tested)")
 	localLLMTestBtn := widget.NewButton("Test Connection", func() {
 		// Save current entries first so the ping uses what the user
@@ -146,6 +182,7 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 		services.SaveSetting(db, services.KeyLocalLLMEndpoint, localLLMEndpoint.Text)
 		services.SaveSetting(db, services.KeyLocalLLMModel, localLLMModel.Text)
 		services.SaveSetting(db, services.KeyLocalLLMEmbedModel, localLLMEmbedModel.Text)
+		services.SaveSetting(db, services.KeyRemoteDebugURL, remoteDebugURL.Text)
 	})
 	keysSaveBtn.Importance = widget.HighImportance
 
@@ -178,6 +215,15 @@ func BuildSettingsView(win fyne.Window, db *sql.DB, onBack func()) fyne.CanvasOb
 		widget.NewLabel("Model (chat)"), localLLMModel,
 		widget.NewLabel("Model (embeddings)"), localLLMEmbedModel,
 		container.NewGridWithColumns(2, localLLMTestBtn, localLLMStatusLabel),
+		autoSubmitCheck,
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("Browser Mode (Bot-Detection Mitigation)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel("Default mode spawns a clean Chrome instance — fast to set up but tagged as 'automated test software' by ATS detectors. Real-Chrome mode attaches to your already-running browser session for genuine cookies + fingerprint + extensions. Most invisible option."),
+		connectChromeCheck,
+		widget.NewLabel("Chrome remote-debug URL"), remoteDebugURL,
+		humanLikeCheck,
+		widget.NewLabel("To enable real-Chrome mode: quit Chrome, then run the following command (Copy Chrome-launch command button below copies it):"),
+		copyLaunchBtn,
 		container.NewPadded(keysSaveBtn),
 	)))
 
